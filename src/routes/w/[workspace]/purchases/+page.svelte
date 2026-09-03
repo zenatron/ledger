@@ -19,6 +19,7 @@
 		X
 	} from '@lucide/svelte';
 	import Money from '$lib/components/Money.svelte';
+	import SkeletonHero from '$lib/components/SkeletonHero.svelte';
 	import SkeletonRow from '$lib/components/SkeletonRow.svelte';
 	import { dismiss } from '$lib/actions/dismiss';
 	import { modal } from '$lib/actions/modal';
@@ -33,6 +34,14 @@
 	import { toastError } from '$lib/toast-state.svelte';
 	let { data } = $props();
 	let slug = $derived(page.params.workspace);
+
+	// The slow pieces of the load arrive as streamed promises (see handlers.ts):
+	// the shell paints at once, and each promise swaps its skeleton for real
+	// content as it lands. `Awaited` unwraps each to what the page renders.
+	type Feed = Awaited<typeof data.feed>;
+	type Entry = Feed['entries'][number];
+	type Forecast = Awaited<typeof data.forecast>;
+	type Runway = Awaited<typeof data.runway>;
 
 	/*
 	 * Search and category live in the URL, like `movements`. Filtering used to
@@ -96,7 +105,7 @@
 		if (bbox) {
 			out.push({
 				key: 'bbox',
-				label: data.placeLabel ?? 'On the map',
+				label: placeLabel ?? 'On the map',
 				clear: { bbox: '' }
 			});
 		}
@@ -105,21 +114,103 @@
 
 	const hasFilters = $derived(activeFilters.length > 0);
 
-	let items = $state<typeof data.entries>([]);
+	let items = $state<Entry[]>([]);
 	let hasMore = $state(false);
 	// The count of everything matching the current filters, from the server.
 	// Deliberately not items.length: that's the number *loaded*, which grew every
 	// time you tapped "Show more" and under-reported until you did.
 	let total = $state(0);
+	// The bbox chip's label, read off the rows the resolved feed actually returned.
+	let placeLabel = $state<string | null>(null);
 
-	// Re-seed from the server list whenever it changes, not just on first paint.
-	// An SSE invalidation refreshes `data` but the paginated `items` array is
-	// what renders, so gating on `items.length === 0` froze the list on stale
-	// rows after any live update.
+	/*
+	 * Each streamed piece carries its own "still arriving" flag. An empty array
+	 * is a meaningful *resolved* answer — nothing pending, nothing held — so the
+	 * emptiness of the data alone can't stand in for "loading".
+	 */
+	let feedPending = $state(true);
+	let awaitingPending = $state(true);
+	let sleepingPending = $state(true);
+	let awaitingRows = $state<Entry[]>([]);
+	let sleepingRows = $state<Entry[]>([]);
+	let f = $state<Forecast | undefined>(undefined);
+	let runway = $state<Runway | undefined>(undefined);
+	// A failed forecast quietly hides the hero rather than leaving a skeleton
+	// frozen mid-print; a failed feed toasts, like "Show more" does.
+	let forecastFailed = $state(false);
+
+	// Consume the streamed promises, re-seeding on every load — not just the
+	// first paint. An SSE invalidation or a filter change hands us fresh
+	// promises, and the paginated `items` array is what renders, so replacing it
+	// wholesale is what kept live updates from freezing stale rows. The run
+	// token discards callbacks from a superseded load arriving late.
+	//
+	// While a promise is pending, whatever was already on screen stays (stale
+	// while re-validate) — a skeleton is only for when there is genuinely
+	// nothing to show yet.
+	let runToken = 0;
 	$effect(() => {
-		items = [...data.entries];
-		hasMore = data.hasMore;
-		total = data.total;
+		const run = ++runToken;
+		feedPending = true;
+		awaitingPending = true;
+		sleepingPending = true;
+		forecastFailed = false;
+		data.feed.then(
+			(v) => {
+				if (run !== runToken) return;
+				items = [...v.entries];
+				hasMore = v.hasMore;
+				total = v.total;
+				placeLabel = v.placeLabel;
+				feedPending = false;
+			},
+			() => {
+				if (run !== runToken) return;
+				feedPending = false;
+				toastError("Couldn't load the ledger");
+			}
+		);
+		data.awaiting.then(
+			(v) => {
+				if (run !== runToken) return;
+				awaitingRows = v;
+				awaitingPending = false;
+			},
+			() => {
+				if (run !== runToken) return;
+				awaitingPending = false;
+			}
+		);
+		data.sleeping.then(
+			(v) => {
+				if (run !== runToken) return;
+				sleepingRows = v;
+				sleepingPending = false;
+			},
+			() => {
+				if (run !== runToken) return;
+				sleepingPending = false;
+			}
+		);
+		data.forecast.then(
+			(v) => {
+				if (run !== runToken) return;
+				f = v;
+			},
+			() => {
+				if (run !== runToken) return;
+				forecastFailed = true;
+			}
+		);
+		// The months-after projection is optional garnish: a failure just leaves
+		// the breakdown without it.
+		void data.runway.then(
+			(v) => {
+				if (run !== runToken) return;
+				runway = v;
+			},
+			() => {}
+		);
 	});
 
 	/*
@@ -146,7 +237,6 @@
 		if (fromUrl !== untrack(() => search)) search = fromUrl;
 	});
 
-	type Entry = (typeof items)[number];
 	const isPurchase = (e: Entry): e is Extract<Entry, { kind: 'purchase' }> => e.kind === 'purchase';
 
 	/** The server already filtered; the client only groups. */
@@ -305,10 +395,10 @@
 	 */
 	// Filter to purchase-kind so the row snippet's type narrows; the server only
 	// ever puts purchases here, this just tells the compiler that.
-	const confirmItems = $derived(data.awaitingConfirmation.filter(isPurchase));
+	const confirmItems = $derived(awaitingRows.filter(isPurchase));
 	const showConfirm = $derived(!hasFilters && !activeQuery && confirmItems.length > 0);
 	// "Sleep on it": paused requests, served whole like the confirm to-do.
-	const sleepingItems = $derived(data.sleeping.filter(isPurchase));
+	const sleepingItems = $derived(sleepingRows.filter(isPurchase));
 	const showSleeping = $derived(!hasFilters && !activeQuery && sleepingItems.length > 0);
 	const rest = $derived(
 		filtered.filter((e) => {
@@ -331,37 +421,38 @@
 	// Harmony's Safe to Spend — the hero. Always visible, even under search and
 	// filters: the number is a whole-month figure regardless, and hiding it made
 	// the whole page jump — on PWA the focused search field could be pulled out
-	// from under the user mid-typing.
-	const f = $derived(data.forecast);
+	// from under the user mid-typing. (`f` arrives on the streamed forecast
+	// promise; until it lands the card holds SkeletonHero's shape.)
 
 	// Svelte JS transitions escape the global reduced-motion clamp in CSS, so
 	// they read the query themselves — the same concession Money.svelte makes.
 	const reduceMotion =
 		typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-	// The months after this one: projected free cash, shown inside the expanded
-	// breakdown. Every figure is a projection; the caption says so.
-	const runway = $derived(data.runway);
-	// Gated on the member's own preference as well as on there being anything to
-	// show: a projection is a different question from "what's left this month",
-	// and not everyone wants the second answer attached to the first.
+	// The months after this one (`runway`, streamed): projected free cash, shown
+	// inside the expanded breakdown. Every figure is a projection; the caption
+	// says so. Gated on the member's own preference as well as on there being
+	// anything to show: a projection is a different question from "what's left
+	// this month", and not everyone wants the second answer attached to the first.
 	const runwayHasSignal = $derived(
 		data.showRunwayMonths &&
-			runway.months.some(
+			(runway?.months.some(
 				(m) => m.incomeMinor !== 0n || m.billsMinor !== 0n || m.savingsMinor !== 0n
-			)
+			) ??
+				false)
 	);
 	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-	function monthLabel(m: { y: number; m: number }): string {
+	function monthLabel(m: { y: number; m: number }, originY: number): string {
 		// Append a short year only when the horizon crosses into a new one.
-		const rollsYear = runway.months[0].month.y !== m.y;
+		const rollsYear = originY !== m.y;
 		return `${MON[m.m - 1]}${rollsYear ? ` ’${String(m.y).slice(2)}` : ''}`;
 	}
 	const runwaySummary = $derived.by(() => {
-		if (!runwayHasSignal) return '';
-		if (runway.firstShortMonth) return `Tight in ${monthLabel(runway.firstShortMonth)}`;
+		if (!runway || !runwayHasSignal) return '';
+		const originY = runway.months[0].month.y;
+		if (runway.firstShortMonth) return `Tight in ${monthLabel(runway.firstShortMonth, originY)}`;
 		const last = runway.months[runway.months.length - 1];
-		return `On track through ${monthLabel(last.month)}`;
+		return `On track through ${monthLabel(last.month, originY)}`;
 	});
 
 	/*
@@ -379,7 +470,7 @@
 	// A momentary reveal, deliberately *not* persisted: leaving the ledger and
 	// coming back re-hides the number, which is the whole point of asking for it.
 	let revealed = $state(false);
-	const showForecast = $derived(display !== 'off');
+	const showForecast = $derived(display !== 'off' && !forecastFailed);
 	const masked = $derived(display === 'masked' && !revealed);
 	/** Formats an amount inside the card, honouring the mask. */
 	const amt = $derived((minor: bigint) =>
@@ -390,17 +481,20 @@
 	// spent, promised, and set aside, arriving at the free number above.
 	let showRunway = $state(false);
 	// Harmony's read of the number — deterministic interpretation, not an LLM call.
-	const narration = $derived(narrateSafeToSpend(f, (m) => formatMinor(m, data.currency)));
+	// Null only while the forecast is still streaming in.
+	const narration = $derived(
+		f ? narrateSafeToSpend(f, (m) => formatMinor(m, data.currency)) : null
+	);
 	const narrationColor = $derived(
-		narration.tone === 'over'
+		narration?.tone === 'over'
 			? 'var(--deny)'
-			: narration.tone === 'tight' || narration.tone === 'budget'
+			: narration?.tone === 'tight' || narration?.tone === 'budget'
 				? 'var(--pending)'
 				: 'var(--ink-3)'
 	);
 	/** "Jul 31" — the last day of the horizon month. */
-	function monthEndLabel(): string {
-		const t = f.horizon.toExclusive; // first of next month
+	function monthEndLabel(forecast: Forecast): string {
+		const t = forecast.horizon.toExclusive; // first of next month
 		const last = new Date(Date.UTC(t.y, t.m - 1, 1) - 86_400_000);
 		return last.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 	}
@@ -652,205 +746,218 @@
 		<!-- Harmony's headline: the money that's actually free this month. Live —
 		     pending reserves it, sleeping releases it, approving commits it. -->
 		<div class="card mb-5 p-4">
-			<div class="flex items-start justify-between gap-2">
-				<button
-					type="button"
-					onclick={() => (masked ? (revealed = true) : (showRunway = !showRunway))}
-					class="press -m-1 flex min-w-0 flex-1 items-start justify-between gap-3 p-1 text-left"
-					aria-expanded={masked ? undefined : showRunway}
-					aria-label={masked
-						? 'Reveal the amount'
-						: showRunway
-							? 'Hide the breakdown'
-							: 'Show how this is calculated'}
-				>
-					<div class="min-w-0">
-						<p class="section-label">Safe to spend · through {monthEndLabel()}</p>
-						<div
-							class="mt-1 font-[family-name:var(--font-display)] text-[32px] leading-[0.95] font-bold"
-							style="color: {masked
-								? 'var(--ink-3)'
-								: f.freeMinor < 0n
-									? 'var(--deny)'
-									: 'var(--ink)'}"
-						>
-							<!-- Colour goes neutral under the mask too: red would say "you're
-							     under" as loudly as the digits would. -->
-							<Money minor={f.freeMinor} currency={data.currency} {masked} />
-						</div>
-					</div>
-					{#if !masked}
-						<ChevronDown
-							class="mt-0.5 h-5 w-5 shrink-0 transition-transform duration-200 {showRunway
-								? 'rotate-180'
-								: ''}"
-							style="color: var(--ink-3)"
-						/>
-					{/if}
-				</button>
-				{#if display === 'masked'}
-					<!-- The banking-app eye: reveal for as long as you're looking, no
-					     longer. Never persisted — see `revealed`. -->
+			{#if !f}
+				<!-- The card's frame belongs to the shell; only the figures stream in. -->
+				<p class="section-label">Safe to spend</p>
+				<SkeletonHero />
+			{:else}
+				<div class="flex items-start justify-between gap-2">
 					<button
 						type="button"
-						onclick={() => {
-							revealed = !revealed;
-							if (!revealed) showRunway = false;
-						}}
-						class="press -m-1 shrink-0 p-1"
-						aria-pressed={revealed}
-						aria-label={revealed ? 'Hide the amount' : 'Reveal the amount'}
+						onclick={() => (masked ? (revealed = true) : (showRunway = !showRunway))}
+						class="press -m-1 flex min-w-0 flex-1 items-start justify-between gap-3 p-1 text-left"
+						aria-expanded={masked ? undefined : showRunway}
+						aria-label={masked
+							? 'Reveal the amount'
+							: showRunway
+								? 'Hide the breakdown'
+								: 'Show how this is calculated'}
 					>
-						{#if revealed}
-							<EyeOff class="h-5 w-5" style="color: var(--ink-3)" />
-						{:else}
-							<Eye class="h-5 w-5" style="color: var(--ink-3)" />
+						<div class="min-w-0">
+							<p class="section-label">Safe to spend · through {monthEndLabel(f)}</p>
+							<div
+								class="mt-1 font-[family-name:var(--font-display)] text-[32px] leading-[0.95] font-bold"
+								style="color: {masked
+									? 'var(--ink-3)'
+									: f.freeMinor < 0n
+										? 'var(--deny)'
+										: 'var(--ink)'}"
+							>
+								<!-- Colour goes neutral under the mask too: red would say "you're
+							     under" as loudly as the digits would. -->
+								<Money minor={f.freeMinor} currency={data.currency} {masked} />
+							</div>
+						</div>
+						{#if !masked}
+							<ChevronDown
+								class="mt-0.5 h-5 w-5 shrink-0 transition-transform duration-200 {showRunway
+									? 'rotate-180'
+									: ''}"
+								style="color: var(--ink-3)"
+							/>
 						{/if}
 					</button>
-				{/if}
-			</div>
-			<!-- Harmony's read: always present, the story above the numbers — except
+					{#if display === 'masked'}
+						<!-- The banking-app eye: reveal for as long as you're looking, no
+					     longer. Never persisted — see `revealed`. -->
+						<button
+							type="button"
+							onclick={() => {
+								revealed = !revealed;
+								if (!revealed) showRunway = false;
+							}}
+							class="press -m-1 shrink-0 p-1"
+							aria-pressed={revealed}
+							aria-label={revealed ? 'Hide the amount' : 'Reveal the amount'}
+						>
+							{#if revealed}
+								<EyeOff class="h-5 w-5" style="color: var(--ink-3)" />
+							{:else}
+								<Eye class="h-5 w-5" style="color: var(--ink-3)" />
+							{/if}
+						</button>
+					{/if}
+				</div>
+				<!-- Harmony's read: always present, the story above the numbers — except
 			     under the mask, where the story *is* the number in words, and its
 			     tone colour gives the answer away on its own. -->
-			{#if masked}
-				<p class="mt-1.5 text-[13px] leading-snug" style="color: var(--ink-3)">
-					Hidden. Tap to reveal.
-				</p>
-			{:else}
-				<p
-					class="mt-1.5 flex items-start gap-1.5 text-[13px] leading-snug"
-					style="color: {narrationColor}"
-				>
-					<Sparkles class="mt-[3px] h-3.5 w-3.5 shrink-0" />
-					<span>{narration.text}</span>
-				</p>
-			{/if}
-			{#if showRunway}
-				<!-- The runway: how income becomes the free number, line by line. -->
-				<div
-					class="mt-4 border-t pt-3 text-[14px]"
-					style="border-color: var(--hairline)"
-					transition:slide={{ duration: reduceMotion ? 0 : 220 }}
-				>
-					{@render runwayLine('Income', f.breakdown.incomeMinor, 'add')}
-					{@render runwayLine(
-						'Recurring',
-						f.breakdown.upcomingBillsMinor,
-						'sub',
-						f.breakdown.upcomingBillsEstimated
-					)}
-					{@render runwayLine('Saved', f.breakdown.savingsMinor, 'sub')}
-					{@render runwayLine('Approved', f.breakdown.cashCommittedMinor, 'sub')}
-					{@render runwayLine('Spent', f.breakdown.cashSpentMinor, 'sub')}
-					<div class="mt-2 border-t pt-2" style="border-color: var(--hairline)">
-						{@render runwayLine('Free to spend', f.freeMinor, 'total')}
-					</div>
-					{#if f.breakdown.reservedMinor > 0n}
-						<div class="mt-2.5 flex items-center justify-between" style="color: var(--ink-3)">
-							<span>Reserved for pending</span>
-							<span class="num" style="color: var(--pending)"
-								>−{formatMinor(f.breakdown.reservedMinor, data.currency)}</span
+				{#if masked}
+					<p class="mt-1.5 text-[13px] leading-snug" style="color: var(--ink-3)">
+						Hidden. Tap to reveal.
+					</p>
+				{:else}
+					<p
+						class="mt-1.5 flex items-start gap-1.5 text-[13px] leading-snug"
+						style="color: {narrationColor}"
+					>
+						<Sparkles class="mt-[3px] h-3.5 w-3.5 shrink-0" />
+						<span>{narration?.text}</span>
+					</p>
+				{/if}
+				{#if showRunway}
+					<!-- The runway: how income becomes the free number, line by line. -->
+					<div
+						class="mt-4 border-t pt-3 text-[14px]"
+						style="border-color: var(--hairline)"
+						transition:slide={{ duration: reduceMotion ? 0 : 220 }}
+					>
+						{@render runwayLine('Income', f.breakdown.incomeMinor, 'add')}
+						{@render runwayLine(
+							'Recurring',
+							f.breakdown.upcomingBillsMinor,
+							'sub',
+							f.breakdown.upcomingBillsEstimated
+						)}
+						{@render runwayLine('Saved', f.breakdown.savingsMinor, 'sub')}
+						{@render runwayLine('Approved', f.breakdown.cashCommittedMinor, 'sub')}
+						{@render runwayLine('Spent', f.breakdown.cashSpentMinor, 'sub')}
+						<div class="mt-2 border-t pt-2" style="border-color: var(--hairline)">
+							{@render runwayLine('Free to spend', f.freeMinor, 'total')}
+						</div>
+						{#if f.breakdown.reservedMinor > 0n}
+							<div class="mt-2.5 flex items-center justify-between" style="color: var(--ink-3)">
+								<span>Reserved for pending</span>
+								<span class="num" style="color: var(--pending)"
+									>−{formatMinor(f.breakdown.reservedMinor, data.currency)}</span
+								>
+							</div>
+							<div class="flex items-center justify-between" style="color: var(--ink-3)">
+								<span>If all approved</span>
+								<span
+									class="num"
+									style="color: {f.afterReservedMinor < 0n ? 'var(--pending)' : 'var(--ink-2)'}"
+									>{formatMinor(f.afterReservedMinor, data.currency)}</span
+								>
+							</div>
+						{/if}
+						{#if f.breakdown.sleepingMinor > 0n}
+							<div
+								class="mt-1 flex items-center justify-between gap-1.5"
+								style="color: var(--seal)"
 							>
-						</div>
-						<div class="flex items-center justify-between" style="color: var(--ink-3)">
-							<span>If all approved</span>
-							<span
-								class="num"
-								style="color: {f.afterReservedMinor < 0n ? 'var(--pending)' : 'var(--ink-2)'}"
-								>{formatMinor(f.afterReservedMinor, data.currency)}</span
-							>
-						</div>
-					{/if}
-					{#if f.breakdown.sleepingMinor > 0n}
-						<div class="mt-1 flex items-center justify-between gap-1.5" style="color: var(--seal)">
-							<span class="flex items-center gap-1.5"><Moon class="h-3.5 w-3.5" /> Sleeping</span>
-							<span class="num">{formatMinor(f.breakdown.sleepingMinor, data.currency)}</span>
-						</div>
-					{/if}
-					{#if f.breakdown.budgetRemainingMinor !== null}
-						<div class="mt-1 flex items-center justify-between" style="color: var(--ink-3)">
-							<!--
+								<span class="flex items-center gap-1.5"><Moon class="h-3.5 w-3.5" /> Sleeping</span>
+								<span class="num">{formatMinor(f.breakdown.sleepingMinor, data.currency)}</span>
+							</div>
+						{/if}
+						{#if f.breakdown.budgetRemainingMinor !== null}
+							<div class="mt-1 flex items-center justify-between" style="color: var(--ink-3)">
+								<!--
 								Two different figures wear this row. With an overall budget it is
 								one ceiling; without one it is the headroom summed across separate
 								category allowances, which you cannot move money between. Calling
 								both "your budget" flattened that.
 							-->
-							<span>
-								{f.breakdown.budgetRemainingKind === 'categories'
-									? 'Left across budgets'
-									: 'Left in your budget'}
-							</span>
-							<span
-								class="num"
-								style="color: {f.breakdown.budgetRemainingMinor < 0n
-									? 'var(--pending)'
-									: 'var(--ink-2)'}"
-								>{formatMinor(f.breakdown.budgetRemainingMinor, data.currency)}</span
-							>
-						</div>
-					{/if}
-					{#if f.breakdown.upcomingBillsEstimated}
-						<!-- Said once, under the figures, rather than on the row itself. -->
-						<p class="mt-2.5 text-[12px] leading-relaxed" style="color: var(--ink-3)">
-							The dotted figure is an estimate. Some of those bills ask you to confirm the real
-							price, so it's what they came to last time.
-						</p>
-					{/if}
-					{#if runwayHasSignal}
-						<!-- The months after this one: projected free cash left each month, after
+								<span>
+									{f.breakdown.budgetRemainingKind === 'categories'
+										? 'Left across budgets'
+										: 'Left in your budget'}
+								</span>
+								<span
+									class="num"
+									style="color: {f.breakdown.budgetRemainingMinor < 0n
+										? 'var(--pending)'
+										: 'var(--ink-2)'}"
+									>{formatMinor(f.breakdown.budgetRemainingMinor, data.currency)}</span
+								>
+							</div>
+						{/if}
+						{#if f.breakdown.upcomingBillsEstimated}
+							<!-- Said once, under the figures, rather than on the row itself. -->
+							<p class="mt-2.5 text-[12px] leading-relaxed" style="color: var(--ink-3)">
+								The dotted figure is an estimate. Some of those bills ask you to confirm the real
+								price, so it's what they came to last time.
+							</p>
+						{/if}
+						{#if runway && runwayHasSignal}
+							<!-- The months after this one: projected free cash left each month, after
 						     income, bills and saving. A projection, not a commitment. -->
-						<div class="mt-4 border-t pt-3" style="border-color: var(--hairline)">
-							<span class="section-label">The months after</span>
-							<div class="mt-1.5 text-[14px]">
-								{#each runway.months as m (`${m.month.y}-${m.month.m}`)}
-									<div class="flex items-center justify-between py-0.5">
-										<span style="color: var(--ink-2)">{monthLabel(m.month)}</span>
-										<!-- The same dotted underline the current month's estimate
+							<div class="mt-4 border-t pt-3" style="border-color: var(--hairline)">
+								<span class="section-label">The months after</span>
+								<div class="mt-1.5 text-[14px]">
+									{#each runway.months as m (`${m.month.y}-${m.month.m}`)}
+										<div class="flex items-center justify-between py-0.5">
+											<span style="color: var(--ink-2)"
+												>{monthLabel(m.month, runway.months[0].month.y)}</span
+											>
+											<!-- The same dotted underline the current month's estimate
 										     wears: a projection whose bills include one that still asks
 										     for its real price. -->
-										<span
-											class="num"
-											style="color: {m.freeMinor < 0n ? 'var(--deny)' : 'var(--ink)'}; {m.estimated
-												? 'text-decoration: underline dotted; text-underline-offset: 3px;'
-												: ''}"
-											>{m.freeMinor >= 0n ? '' : '−'}{formatMinor(
-												m.freeMinor < 0n ? -m.freeMinor : m.freeMinor,
-												data.currency
-											)}</span
-										>
-									</div>
-								{/each}
-							</div>
-							{#if runwaySummary}
-								<p class="mt-2 text-[12px] leading-relaxed" style="color: var(--ink-3)">
-									<!-- The newline before the block is load-bearing: with `yet.{#if`
+											<span
+												class="num"
+												style="color: {m.freeMinor < 0n
+													? 'var(--deny)'
+													: 'var(--ink)'}; {m.estimated
+													? 'text-decoration: underline dotted; text-underline-offset: 3px;'
+													: ''}"
+												>{m.freeMinor >= 0n ? '' : '−'}{formatMinor(
+													m.freeMinor < 0n ? -m.freeMinor : m.freeMinor,
+													data.currency
+												)}</span
+											>
+										</div>
+									{/each}
+								</div>
+								{#if runwaySummary}
+									<p class="mt-2 text-[12px] leading-relaxed" style="color: var(--ink-3)">
+										<!-- The newline before the block is load-bearing: with `yet.{#if`
 									     adjacent, Svelte trims and the sentences run together as
 									     "yet.A dotted figure". -->
-									{runwaySummary}. Projected from what repeats each month. Nothing here is spent
-									yet.
-									{#if runway.months.some((m) => m.estimated)}
-										A dotted figure includes a bill that still asks for its real price.
-									{/if}
-								</p>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			{/if}
-			{#if !showRunway}
-				<p class="mt-1.5 text-[13px]" style="color: var(--ink-3)">
-					<span class="num">{amt(f.breakdown.upcomingBillsMinor)}</span>
-					bills ·
-					<span class="num">{amt(f.breakdown.savingsMinor)}</span> saved{f.breakdown
-						.cashCommittedMinor > 0n
-						? ` · ${amt(f.breakdown.cashCommittedMinor)} approved`
-						: ''} this month
-				</p>
-				{#if f.breakdown.sleepingMinor > 0n}
-					<p class="mt-1 flex items-center gap-1.5 text-[13px]" style="color: var(--seal)">
-						<Moon class="h-3.5 w-3.5" />
-						<span><span class="num">{amt(f.breakdown.sleepingMinor)}</span> sleeping on it</span>
+										{runwaySummary}. Projected from what repeats each month. Nothing here is spent
+										yet.
+										{#if runway.months.some((m) => m.estimated)}
+											A dotted figure includes a bill that still asks for its real price.
+										{/if}
+									</p>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+				{#if !showRunway}
+					<p class="mt-1.5 text-[13px]" style="color: var(--ink-3)">
+						<span class="num">{amt(f.breakdown.upcomingBillsMinor)}</span>
+						bills ·
+						<span class="num">{amt(f.breakdown.savingsMinor)}</span> saved{f.breakdown
+							.cashCommittedMinor > 0n
+							? ` · ${amt(f.breakdown.cashCommittedMinor)} approved`
+							: ''} this month
 					</p>
+					{#if f.breakdown.sleepingMinor > 0n}
+						<p class="mt-1 flex items-center gap-1.5 text-[13px]" style="color: var(--seal)">
+							<Moon class="h-3.5 w-3.5" />
+							<span><span class="num">{amt(f.breakdown.sleepingMinor)}</span> sleeping on it</span>
+						</p>
+					{/if}
 				{/if}
 			{/if}
 		</div>
@@ -858,10 +965,16 @@
 
 	<div class="flex items-end justify-between px-1 pt-1 pb-2">
 		<h1>Ledger</h1>
-		<span class="num pb-1 text-[13px]" style="color: var(--ink-3)"
-			>{total}
-			{total === 1 ? 'item' : 'items'}</span
-		>
+		<span class="num pb-1 text-[13px]" style="color: var(--ink-3)">
+			{#if feedPending && items.length === 0}
+				<!-- The count streams with the feed; a block of paper stands in for
+				     it rather than a number that would be wrong twice. -->
+				<span class="skeleton inline-block h-3 w-14 align-middle" aria-hidden="true"></span>
+			{:else}
+				{total}
+				{total === 1 ? 'item' : 'items'}
+			{/if}
+		</span>
 	</div>
 
 	<div class="mb-5 flex gap-2">
@@ -1102,7 +1215,29 @@
 		</div>
 	{/if}
 
-	{#if filtered.length === 0}
+	{#if awaitingPending && awaitingRows.length === 0 && !hasFilters && !activeQuery}
+		<!-- The confirm to-do streams separately from the feed; while it's in
+		     flight, its rows hold the shape. Default view only, like the section
+		     itself — under a search or filter you want raw results. -->
+		<p class="section-label mt-2 mb-1 px-1" style="color: var(--pending)">Awaiting a decision</p>
+		<div class="mb-6">
+			{#each Array(2) as _, i (i)}
+				<SkeletonRow index={i} chip last={i === 1} />
+			{/each}
+		</div>
+	{/if}
+
+	{#if feedPending && items.length === 0}
+		<!-- Known-loading rows: four placeholders carry the message as well as
+		     twenty would; a skeleton list as long as the content it imitates is
+		     theatre. -->
+		<p class="section-label mt-2 mb-1 px-1">Recent</p>
+		<div>
+			{#each Array(4) as _, i (i)}
+				<SkeletonRow index={i} chip last={i === 3} />
+			{/each}
+		</div>
+	{:else if filtered.length === 0}
 		<div class="mt-6 px-6 py-10 text-center">
 			<div
 				class="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[22px]"
@@ -1228,7 +1363,7 @@
 				     imitates is theatre. -->
 				{#if loadingMore}
 					{#each Array(4) as _, i (i)}
-						<SkeletonRow last={i === 3} />
+						<SkeletonRow index={i} chip last={i === 3} />
 					{/each}
 				{/if}
 			</div>

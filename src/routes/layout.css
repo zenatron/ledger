@@ -407,39 +407,78 @@
 	 * data lands, so a page-level skeleton would invent a blank that isn't
 	 * there). Shaped in the row vocabulary: an icon square, a line or two.
 	 *
-	 * The gloss is the placeholder-shimmer idea on blocks instead of text: the
-	 * base is surface-2, the band lightens it toward the accent. The keyframes
-	 * hold the plain base at 0% and the band sits outside the box at 100%, so
-	 * the reduced-motion freeze and the loop seam both read as an ordinary
-	 * static block — a mid-glint freeze would look like a rendering bug.
+	 * Ink typeset: the placeholder prints itself. Each block is plain surface-2
+	 * paper, and a whisper of --ink sets across it left to right — the same
+	 * direction the page is read and the placeholder-shimmer glints, staged by
+	 * an element's row (--i) and its place within the row (--j), so a loading
+	 * section typesets top-down instead of blinking on at once. The keyframes
+	 * end on the ink lifted and the clip outside the box, so the loop seam —
+	 * and the reduced-motion freeze, which lands on the base state — both read
+	 * as the ordinary static block. A mid-print freeze would look like a
+	 * rendering bug.
 	 */
 	.skeleton {
-		background: linear-gradient(
-			100deg,
-			var(--surface-2) 42%,
-			light-dark(
-					color-mix(in oklab, var(--ws-accent, var(--accent)) 14%, var(--surface-2)),
-					color-mix(in oklab, var(--ws-accent, var(--accent)) 10%, var(--surface-2))
-				)
-				50%,
-			var(--surface-2) 58%
-		);
-		background-size: 250% 100%;
+		position: relative;
+		background: var(--surface-2);
 		border-radius: calc(var(--r-sm) * 0.6);
-		animation: skeleton-gloss 1.8s linear infinite;
 	}
-	@keyframes skeleton-gloss {
-		from {
-			background-position: 100% 0;
+	.skeleton::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: light-dark(
+			color-mix(in oklab, var(--ink) 15%, transparent),
+			color-mix(in oklab, var(--ink) 13%, transparent)
+		);
+		clip-path: inset(0 100% 0 0);
+		animation: skeleton-ink 3.2s var(--ease-out) infinite;
+		animation-delay: calc(var(--i, 0) * 80ms + var(--j, 0) * 100ms);
+	}
+	@keyframes skeleton-ink {
+		0% {
+			clip-path: inset(0 100% 0 0);
+			opacity: 1;
 		}
-		to {
-			background-position: 0% 0;
+		38% {
+			clip-path: inset(0 0 0 0);
+			opacity: 1;
+		}
+		74% {
+			clip-path: inset(0 0 0 0);
+			opacity: 1;
+		}
+		90% {
+			clip-path: inset(0 0 0 0);
+			opacity: 0;
+		}
+		100% {
+			clip-path: inset(0 100% 0 0);
+			opacity: 0;
+		}
+	}
+	/* The rule under a loading row draws itself, with the boot rule's easing. */
+	.hairline-draw {
+		border: 0;
+		border-top: 1px solid var(--hairline);
+		transform-origin: left center;
+		animation: hairline-draw 3.2s cubic-bezier(0.2, 0.7, 0.3, 1) infinite;
+		animation-delay: calc(var(--i, 0) * 80ms);
+	}
+	@keyframes hairline-draw {
+		0% {
+			transform: scaleX(0);
+		}
+		45%,
+		100% {
+			transform: scaleX(1);
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.skeleton {
-			/* Belt and braces: the global clamp below already freezes this, but the
-			   intent deserves saying here too. */
+		/* Belt and braces: the global clamp below already freezes these, but the
+		   intent deserves saying here too. */
+		.skeleton::after,
+		.hairline-draw {
 			animation: none;
 		}
 	}
