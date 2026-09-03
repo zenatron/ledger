@@ -363,6 +363,12 @@ interface RecDef {
 	minor: bigint;
 	rrule: string;
 	dayOfMonth: number;
+	/**
+	 * Days ago this rule was ended, for the Recurring page's Ended section.
+	 * Its charges stop here, so the lifetime total covers a real run and then
+	 * stops.
+	 */
+	endedDaysAgo?: number;
 }
 const recDefs: RecDef[] = [
 	{
@@ -454,6 +460,17 @@ const recDefs: RecDef[] = [
 		minor: 320_00n,
 		rrule: 'DTSTART=2025-07-18;FREQ=MONTHLY;BYMONTHDAY=18',
 		dayOfMonth: 18
+	},
+	{
+		// Cancelled four months ago, so the Ended section has something in it.
+		id: uuid(),
+		member: danaMem,
+		item: 'Meal kit delivery',
+		cat: 1,
+		minor: 62_50n,
+		rrule: 'DTSTART=2025-07-22;FREQ=MONTHLY;BYMONTHDAY=22',
+		dayOfMonth: 22,
+		endedDaysAgo: 120
 	}
 ];
 
@@ -467,11 +484,12 @@ await db.insert(schema.recurringRule).values(
 		amountMinor: r.minor,
 		currency: 'USD',
 		rrule: r.rrule,
-		lastGeneratedAt: daysAgo(rng(28, 35)),
-		status: 'active' as any,
+		lastGeneratedAt: daysAgo(r.endedDaysAgo ?? rng(28, 35)),
+		status: (r.endedDaysAgo === undefined ? 'active' : 'ended') as any,
 		autoComplete: false,
-		endedAt: null,
-		nextOccurrenceAt: nextOccurrenceOf(r.rrule)
+		// An ended rule stops here and has no next date, exactly as endRule leaves it.
+		endedAt: r.endedDaysAgo === undefined ? null : daysAgo(r.endedDaysAgo),
+		nextOccurrenceAt: r.endedDaysAgo === undefined ? nextOccurrenceOf(r.rrule) : null
 	}))
 );
 
@@ -481,6 +499,9 @@ for (let month = 1; month <= MONTHS; month++) {
 	for (const rp of recDefs) {
 		const day = month * 30 - rp.dayOfMonth;
 		if (day < 3) continue; // skip very recent
+		// `day` counts backwards, so anything more recent than the end date never
+		// happened for a rule that has been ended.
+		if (rp.endedDaysAgo !== undefined && day < rp.endedDaysAgo) continue;
 		// Vary the amount slightly month to month
 		const variance = BigInt(rng(-500, 500));
 		const minor = rp.minor + variance;

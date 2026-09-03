@@ -1,6 +1,6 @@
 import { and, eq, lte } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
-import { bucket, recurringRule, user, workspace, workspaceMember } from '$lib/db/schema';
+import { bucket, purchase, recurringRule, user, workspace, workspaceMember } from '$lib/db/schema';
 import { Money } from '$lib/domain/money/money';
 import type { Purchase, TransitionEvent } from '$lib/domain/purchase/purchase';
 import { addDays, nextOccurrence, parseRRule } from '$lib/domain/recurrence/rrule';
@@ -217,6 +217,38 @@ export interface UpdateRuleCmd {
 	autoComplete?: boolean;
 }
 
+/**
+ * The editable fields of a rule, validated and turned into a column patch.
+ *
+ * Shared by `updateRule` and `restartRule`. A restart is the one moment a rule
+ * is most likely to need a new price: a subscription you cancelled in March
+ * and want back in September is rarely still the March price. Running both
+ * through the same validation keeps a restarted rule as trustworthy as an
+ * edited one, down to the bucket check.
+ */
+async function ruleFieldUpdates(
+	db: Db,
+	scope: Scope,
+	currency: string,
+	cmd: UpdateRuleCmd
+): Promise<Record<string, unknown>> {
+	const updates: Record<string, unknown> = {};
+	if (cmd.itemName !== undefined) updates.itemName = cmd.itemName;
+	if (cmd.amount !== undefined) {
+		if (cmd.amount.currency !== currency || !cmd.amount.isPositive) {
+			throw new RecurringRuleError(`Amount must be positive ${currency}`);
+		}
+		updates.amountMinor = cmd.amount.minor;
+	}
+	if (cmd.categoryId !== undefined) updates.categoryId = cmd.categoryId;
+	if (cmd.bucketId !== undefined) {
+		if (cmd.bucketId) await assertChargableBucket(db, scope, cmd.bucketId);
+		updates.bucketId = cmd.bucketId;
+	}
+	if (cmd.autoComplete !== undefined) updates.autoComplete = cmd.autoComplete;
+	return updates;
+}
+
 export async function updateRule(
 	db: Db,
 	deps: Deps,
@@ -235,20 +267,7 @@ export async function updateRule(
 		.limit(1);
 	if (!ws) throw new RecurringRuleError('Workspace not found');
 
-	const updates: Record<string, unknown> = {};
-	if (cmd.itemName !== undefined) updates.itemName = cmd.itemName;
-	if (cmd.amount !== undefined) {
-		if (cmd.amount.currency !== rule.currency || !cmd.amount.isPositive) {
-			throw new RecurringRuleError(`Amount must be positive ${rule.currency}`);
-		}
-		updates.amountMinor = cmd.amount.minor;
-	}
-	if (cmd.categoryId !== undefined) updates.categoryId = cmd.categoryId;
-	if (cmd.bucketId !== undefined) {
-		if (cmd.bucketId) await assertChargableBucket(db, scope, cmd.bucketId);
-		updates.bucketId = cmd.bucketId;
-	}
-	if (cmd.autoComplete !== undefined) updates.autoComplete = cmd.autoComplete;
+	const updates = await ruleFieldUpdates(db, scope, rule.currency, cmd);
 	if (cmd.rrule !== undefined) {
 		const rec = parseRRule(cmd.rrule);
 		const today = calDateInZone(now, ws.timezone);
@@ -258,6 +277,83 @@ export async function updateRule(
 	}
 	if (Object.keys(updates).length === 0) return;
 	await db.update(recurringRule).set(updates).where(eq(recurringRule.id, ruleId));
+}
+
+/**
+ * Bring an ended rule back, at whatever price and cadence it charges now.
+ *
+ * Deliberately not a one-tap undo of `endRule`. Things get cancelled and picked
+ * up again months later, and in between the price goes up and the billing day
+ * moves, so this takes the same field patch an edit does. `updateRule` refuses
+ * an ended rule outright, which is why this is its own path.
+ *
+ * The rule is reused, never recreated: its old purchases stay attached, so what
+ * it has cost you keeps adding up across the gap.
+ */
+export async function restartRule(
+	db: Db,
+	deps: Deps,
+	scope: Scope,
+	ruleId: string,
+	cmd: UpdateRuleCmd = {}
+) {
+	const now = deps.clock.now();
+	const rule = await loadOwnRule(db, scope, ruleId);
+	if (rule.status !== 'ended') throw new RecurringRuleError('Only ended rules can start again');
+
+	const [ws] = await db
+		.select({ timezone: workspace.timezone, currency: workspace.currency })
+		.from(workspace)
+		.where(eq(workspace.id, scope.workspaceId))
+		.limit(1);
+	if (!ws) throw new RecurringRuleError('Workspace not found');
+
+	const updates = await ruleFieldUpdates(db, scope, rule.currency, cmd);
+	// Whatever schedule was posted, or the one it ended on if the caller sent none.
+	const rrule = cmd.rrule ?? rule.rrule;
+	const rec = parseRRule(rrule);
+
+	// Forward-only, and never backfilled. The months it sat ended are a real gap
+	// in what was paid; generating charges for them would invent spending nobody
+	// did. `addDays(today, -1)` still lets an occurrence falling today count,
+	// matching createRule.
+	const today = calDateInZone(now, ws.timezone);
+	const next = nextOccurrence(rec, addDays(today, -1));
+
+	await db
+		.update(recurringRule)
+		.set({
+			...updates,
+			rrule,
+			status: 'active',
+			endedAt: null,
+			nextOccurrenceAt: zonedTimeToUtc(next, MATERIALIZE_HOUR, 0, ws.timezone)
+		})
+		.where(eq(recurringRule.id, ruleId));
+}
+
+/**
+ * Erase an ended rule for good.
+ *
+ * Only ended rules qualify, so getting rid of one is always two deliberate
+ * steps: end it, then delete it. Nothing that is still charging can be removed
+ * by a single tap.
+ *
+ * `purchase.recurring_rule_id` carries a real foreign key, so the charges have
+ * to let go of the rule before the row can leave. They keep their money and
+ * their place in the ledger; what they lose is the marker saying a rule made
+ * them. The confirm on the page says so before this runs.
+ */
+export async function deleteRule(db: Db, deps: Deps, scope: Scope, ruleId: string) {
+	const rule = await loadOwnRule(db, scope, ruleId);
+	if (rule.status !== 'ended') throw new RecurringRuleError('End the rule before deleting it');
+	await db.transaction(async (tx) => {
+		await tx
+			.update(purchase)
+			.set({ recurringRuleId: null })
+			.where(eq(purchase.recurringRuleId, ruleId));
+		await tx.delete(recurringRule).where(eq(recurringRule.id, ruleId));
+	});
 }
 
 /**

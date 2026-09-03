@@ -63,8 +63,10 @@ import {
 	pauseRule,
 	resumeRule,
 	endRule,
+	restartRule,
 	materializeDueRules,
-	RecurringRuleError
+	RecurringRuleError,
+	type UpdateRuleCmd
 } from '$lib/application/recurring';
 import {
 	parseRRule,
@@ -1044,18 +1046,30 @@ export const TOOLS: McpTool[] = [
 	{
 		name: 'list_recurring',
 		description:
-			'List active and paused recurring payment rules (subscriptions, regular bills), with cadence, next charge date, amount, and id.',
+			'List active and paused recurring payment rules (subscriptions, regular bills), with cadence, next charge date, amount, and id. Set include_ended=true to also list rules that have been ended.',
 		scope: 'read',
-		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-		async handler(ctx) {
+		inputSchema: {
+			type: 'object',
+			properties: {
+				include_ended: {
+					type: 'boolean',
+					description: 'Also list ended rules, such as a cancelled subscription.'
+				}
+			},
+			additionalProperties: false
+		},
+		async handler(ctx, args) {
+			const includeEnded = args?.include_ended === true;
 			const rows = await ctx.db
 				.select()
 				.from(recurringRule)
 				.where(
-					and(
-						eq(recurringRule.workspaceId, ctx.authed.workspace.id),
-						ne(recurringRule.status, 'ended')
-					)
+					includeEnded
+						? eq(recurringRule.workspaceId, ctx.authed.workspace.id)
+						: and(
+								eq(recurringRule.workspaceId, ctx.authed.workspace.id),
+								ne(recurringRule.status, 'ended')
+							)
 				);
 			const data = rows.map((r) => {
 				let cadence: string;
@@ -1265,7 +1279,7 @@ export const TOOLS: McpTool[] = [
 	{
 		name: 'end_recurring',
 		description:
-			'End a recurring rule permanently (e.g. a cancelled subscription). Past charges are kept; it stops generating new ones and cannot be resumed.',
+			'End a recurring rule (e.g. a cancelled subscription). Past charges are kept and it stops generating new ones. Use restart_recurring to bring it back.',
 		scope: 'write',
 		inputSchema: {
 			type: 'object',
@@ -1277,6 +1291,66 @@ export const TOOLS: McpTool[] = [
 			const id = required(args, 'rule_id');
 			await endRule(ctx.db, ctx.deps, scopeOf(ctx), id);
 			return { text: `Ended recurring rule ${id}.`, data: { rule_id: id, status: 'ended' } };
+		}
+	},
+	{
+		name: 'restart_recurring',
+		description:
+			'Start an ended recurring rule again, optionally at a new amount or on a new schedule. The rule keeps its past charges. Nothing is backfilled for the time it was ended.',
+		scope: 'write',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				rule_id: { type: 'string' },
+				amount: {
+					type: 'string',
+					description: 'Optional new decimal amount. Omit to keep the amount it ended on.'
+				},
+				freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
+				start_date: { type: 'string', description: 'Date it charges again, YYYY-MM-DD.' },
+				interval: { type: 'integer', minimum: 1, maximum: 52 },
+				weekdays: { type: 'array', items: { type: 'string' } },
+				day_of_month: { type: 'integer' }
+			},
+			required: ['rule_id'],
+			additionalProperties: false
+		},
+		async handler(ctx, args) {
+			const ruleId = required(args, 'rule_id');
+			const cmd: UpdateRuleCmd = {};
+			const amount = str(args, 'amount');
+			if (amount) cmd.amount = Money.fromDecimal(amount, ctx.authed.workspace.currency);
+
+			// Same override-the-named-parts shape as update_recurring: "bring back
+			// Netflix, weekly now" keeps everything it does not mention.
+			const scheduleTouched = ['freq', 'start_date', 'interval', 'weekdays', 'day_of_month'].some(
+				(k) => args[k] !== undefined
+			);
+			if (scheduleTouched) {
+				const [row] = await ctx.db
+					.select()
+					.from(recurringRule)
+					.where(
+						and(
+							eq(recurringRule.id, ruleId),
+							eq(recurringRule.workspaceId, ctx.authed.workspace.id)
+						)
+					)
+					.limit(1);
+				if (!row) return { text: `No recurring rule with id ${ruleId}.`, isError: true };
+				let base: Recurrence | undefined;
+				try {
+					base = parseRRule(row.rrule);
+				} catch {
+					base = undefined;
+				}
+				cmd.rrule = formatRRule(buildRecurrence(args, base));
+			}
+			await restartRule(ctx.db, ctx.deps, scopeOf(ctx), ruleId, cmd);
+			return {
+				text: `Started recurring rule ${ruleId} again.`,
+				data: { rule_id: ruleId, status: 'active' }
+			};
 		}
 	},
 	{

@@ -2,7 +2,7 @@
 	"name": "budget-app",
 	"description": "Self-hosted workspace budget and approval tracker",
 	"private": true,
-	"version": "0.57.1",
+	"version": "0.58.0",
 	"license": "AGPL-3.0-or-later",
 	"type": "module",
 	"engines": {

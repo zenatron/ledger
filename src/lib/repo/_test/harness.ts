@@ -109,6 +109,8 @@ export interface SeededWorkspace {
 		bucketId?: string | null;
 		parentPurchaseId?: string | null;
 		merchantId?: string | null;
+		/** Link it to the rule that generated it, as materializeDueRules does. */
+		recurringRuleId?: string | null;
 	}): Promise<string>;
 }
 
@@ -271,7 +273,8 @@ export async function seedWorkspace(
 			sealedUntil = null,
 			bucketId = null,
 			parentPurchaseId = null,
-			merchantId = null
+			merchantId = null,
+			recurringRuleId = null
 		}) {
 			const id = uid();
 			await db.insert(schema.purchase).values({
@@ -291,6 +294,7 @@ export async function seedWorkspace(
 				bucketId,
 				parentPurchaseId,
 				merchantId,
+				recurringRuleId,
 				createdAt: now,
 				updatedAt: now
 			});

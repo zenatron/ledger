@@ -164,7 +164,8 @@
 						'For rent, subscriptions, and bills. Each rule generates purchases on its own schedule. A rule can be charged to a bucket, which draws the bucket down as each charge lands.',
 						'**Record automatically** posts them as already paid at the set amount. Leave it off for a bill that changes each month, and each charge appears under **Confirm what you paid** at the top of the Ledger, waiting for you to enter the real figure.',
 						'Recurring purchases skip approval. The decision was made when you created the rule.',
-						'If the app is offline for a while, missed occurrences are generated when it comes back.'
+						'If the app is offline for a while, missed occurrences are generated when it comes back.',
+						'Ending a charge keeps it under **Ended** at the bottom of the page, with what it cost you over its life. You can start it again at a new price or on a new schedule, or delete the record for good.'
 					]
 				},
 				{

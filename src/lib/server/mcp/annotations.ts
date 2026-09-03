@@ -65,6 +65,7 @@ const SAFE_WRITES = new Set([
 	// Reversible in one move, losing nothing.
 	'pause_recurring',
 	'resume_recurring',
+	'restart_recurring',
 	'pause_bucket',
 	'resume_bucket',
 	'wake_purchase',
@@ -80,6 +81,7 @@ const IDEMPOTENT_WRITES = new Set([
 	'pause_recurring',
 	'resume_recurring',
 	'end_recurring',
+	'restart_recurring',
 	'pause_bucket',
 	'resume_bucket',
 	'archive_bucket',
