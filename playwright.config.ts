@@ -45,12 +45,19 @@ export default defineConfig({
 				// switches to became the same person and the multi-user flows these
 				// tests exist to cover silently collapsed.
 				DEV_MODE: 'false',
-				DATABASE_URL: 'postgres://root:mysecretpassword@localhost:5432/local',
+				// Overridable so the suite can run while another project's postgres
+				// owns 5432 (start one on another port and point this at it).
+				DATABASE_URL:
+					process.env.E2E_DATABASE_URL ?? 'postgres://root:mysecretpassword@localhost:5432/local',
 				POCKET_ID_ISSUER: 'http://localhost:9443',
 				POCKET_ID_CLIENT_ID: 'budget-e2e',
 				POCKET_ID_CLIENT_SECRET: 'e2e-secret',
 				OIDC_REDIRECT_URI: 'http://localhost:5174/auth/callback',
-				PUBLIC_ORIGIN: 'http://localhost:5174'
+				PUBLIC_ORIGIN: 'http://localhost:5174',
+				// Set to any URL to turn the geocoder capability on (typed-address
+				// search); the specs that need candidates intercept /places/search in
+				// the browser, so no provider is ever contacted. Absent = unchanged.
+				...(process.env.E2E_GEOCODER_URL ? { GEOCODER_URL: process.env.E2E_GEOCODER_URL } : {})
 			}
 		}
 	]

@@ -893,6 +893,16 @@
 							{#each placeField.candidates as c, i (i)}
 								<button
 									type="button"
+									onpointerdown={(e) => {
+										/*
+										 * A tap blurs the place input at pointerdown, and that
+										 * blur re-searches — emptying `candidates` before the
+										 * click lands. Keep the focus where it is; the click,
+										 * now always finding its button still mounted, does
+										 * the selecting.
+										 */
+										e.preventDefault();
+									}}
 									onclick={() => placeField.pickCandidate(c)}
 									class="mt-2 flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 text-left"
 									style="background: color-mix(in oklab, var(--surface-2) 70%, var(--surface))"

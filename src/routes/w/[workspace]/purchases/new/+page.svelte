@@ -714,6 +714,18 @@
 				{#each placeField.candidates as c, i (i)}
 					<button
 						type="button"
+						onpointerdown={(e) => {
+							/*
+							 * A tap starts with pointerdown, and pointerdown on a button
+							 * blurs the place input — whose blur re-searches and empties
+							 * `candidates` before the click ever lands. So the tap keeps
+							 * the focus where it is, and the click — which now always
+							 * finds its button still mounted — does the selecting. The
+							 * keyboard path needs nothing here: an Enter on a focused
+							 * row is a click with no pointerdown, and nothing to blur.
+							 */
+							e.preventDefault();
+						}}
 						onclick={() => placeField.pickCandidate(c)}
 						class="row row-tap hairline w-full text-left"
 						style="box-shadow: inset 0 0.5px 0 var(--hairline)"
@@ -760,6 +772,15 @@
 					{:else if suggested}
 						<button
 							type="button"
+							onpointerdown={(e) => {
+								/*
+								 * Same race as the place candidates: tapping Apply blurs
+								 * Item or Paid-to, and that blur re-asks — swapping this
+								 * button for "Finding a category…" before the click
+								 * lands. Keep the focus; let the click take the answer.
+								 */
+								e.preventDefault();
+							}}
 							onclick={applySuggestion}
 							class="press flex-1 text-left text-[15px]"
 							style="color: var(--ink-2)"
@@ -770,6 +791,11 @@
 						</button>
 						<button
 							type="button"
+							onpointerdown={(e) => {
+								// Dismissing has the same race: without this, the blur
+								// re-ask can put the chip straight back.
+								e.preventDefault();
+							}}
 							onclick={() => (suggested = null)}
 							aria-label="Dismiss suggestion"
 							class="press"

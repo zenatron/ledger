@@ -163,6 +163,8 @@ export interface NewPurchase {
 	sealUntil?: string; // YYYY-MM-DD
 	/** Who you paid — the field the UI labels "From". */
 	merchant?: string;
+	/** Pick a category whose option text starts with this (e.g. 'Dining'). */
+	category?: string;
 	/**
 	 * A maps URL for the "Where" row. Resolved entirely offline — the URL
 	 * already contains its coordinates — so a test that uses this reaches no
@@ -251,6 +253,15 @@ export async function newPurchase(page: Page, slug: string, p: NewPurchase): Pro
 	}).toPass({ timeout: 20_000 });
 
 	if (p.merchant) await page.getByLabel('Paid to').fill(p.merchant);
+	if (p.category) {
+		// Same shape as the bucket picker below: find the option by its text,
+		// select by value.
+		const option = page.locator('select[name="categoryId"] option', { hasText: p.category });
+		await expect(option).toHaveCount(1);
+		await page
+			.locator('select[name="categoryId"]')
+			.selectOption(await option.getAttribute('value'));
+	}
 	if (p.mapLink) {
 		await placeField(page).fill(p.mapLink);
 		await placeField(page).press('Enter');

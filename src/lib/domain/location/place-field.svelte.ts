@@ -63,6 +63,9 @@ export function createPlaceField(opts: {
 	let candidates = $state<PlaceCandidate[]>([]);
 	let searching = $state(false);
 	let locating = $state(false);
+	/** The question the last finished search asked, and when it was answered. */
+	let askedTerm = '';
+	let askedAt = 0;
 
 	function settled(p: PurchasePlace | null) {
 		place = p;
@@ -116,6 +119,15 @@ export function createPlaceField(opts: {
 		 * this question; let it answer.
 		 */
 		if (searching) return;
+		/*
+		 * And not again for the text that was just answered. Blur paths — tapping
+		 * into another field while the list is showing, the guarded Save — commit
+		 * the same text a paste or an Enter resolved moments ago, and the
+		 * adapter's one-request-per-second gate answers the repeat with nothing:
+		 * "Nothing found" wiped over a list that was right. Editing the text
+		 * changes the term, and a changed term searches as normal.
+		 */
+		if (term === askedTerm && Date.now() - askedAt < 10_000) return;
 		searching = true;
 		candidates = [];
 		try {
@@ -137,6 +149,8 @@ export function createPlaceField(opts: {
 			error = 'Could not search for that right now.';
 		} finally {
 			searching = false;
+			askedTerm = term;
+			askedAt = Date.now();
 		}
 	}
 
