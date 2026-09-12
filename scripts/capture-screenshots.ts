@@ -564,6 +564,20 @@ const entries = captured
 
 const manifestPath = `${ROOT}/static/manifest.webmanifest`;
 const manifest = JSON.parse(await Bun.file(manifestPath).text());
-manifest.screenshots = entries;
+// A partial run (no --server, or the seed had no pending approval) must not
+// shrink the manifest: the shots it skipped stay committed on disk and in the
+// store listing. Fresh entries replace their old versions in place; entries
+// this run never took are kept as they were.
+const freshBySrc = new Map(entries.map((e) => [e.src, e]));
+const previous: Array<{ src: string }> = manifest.screenshots ?? [];
+const untouched = new Set(previous.map((e) => e.src).filter((src) => !freshBySrc.has(src)));
+const merged = [
+	...previous.filter((e) => !untouched.has(e.src)).map((e) => freshBySrc.get(e.src) ?? e),
+	...entries.filter((e) => !previous.some((p) => p.src === e.src))
+];
+manifest.screenshots = merged;
 await Bun.write(manifestPath, JSON.stringify(manifest, null, '\t') + '\n');
-console.log(`updated manifest with ${entries.length} screenshots`);
+console.log(
+	`updated manifest with ${merged.length} screenshots` +
+		(untouched.size ? ` (kept ${untouched.size} not captured this run)` : '')
+);

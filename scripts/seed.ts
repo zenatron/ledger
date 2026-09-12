@@ -61,6 +61,11 @@ async function upsertUser(sub: string, email: string, name: string): Promise<str
 
 const aliceId = await upsertUser('sub-alice-001', 'alice@example.com', 'Alice Test');
 const bobId = await upsertUser('sub-bob-002', 'bob@example.com', 'Bob Test');
+// The DEV_MODE auto-login user (hooks.server.ts, oidcSubject 'dev-user'): a
+// dev server run and the screenshot capture both arrive as this person, so
+// they must be a member or every /w/demo page 404s. Owner, because half the
+// captured screens (members, API, notifications, AI assist) are owner-only.
+const devUserId = await upsertUser('dev-user', 'dev@test.local', 'Dev User');
 
 const wsId = uuid();
 await db.insert(schema.workspace).values({
@@ -73,11 +78,14 @@ await db.insert(schema.workspace).values({
 	maxSealDays: 30,
 	reapprovalThresholdPct: 20,
 	accentColor: '#FF9F0A',
+	// The map 403s with places off, and the screenshot pass captures it.
+	locationEnabled: true,
 	createdAt: now
 });
 
 const aliceMember = uuid();
 const bobMember = uuid();
+const devMember = uuid();
 await db.insert(schema.workspaceMember).values([
 	{
 		id: aliceMember,
@@ -99,6 +107,15 @@ await db.insert(schema.workspaceMember).values([
 			category_overrides: [],
 			routing: { mode: 'any_of', approver_ids: [aliceMember] }
 		},
+		status: 'active',
+		joinedAt: now
+	},
+	{
+		id: devMember,
+		workspaceId: wsId,
+		userId: devUserId,
+		role: 'owner',
+		approvalPolicy: { mode: 'none', routing: { mode: 'any_of', approver_ids: [] } },
 		status: 'active',
 		joinedAt: now
 	}
@@ -138,6 +155,7 @@ async function addPurchase(opts: {
 	nudgeCount?: number;
 	lastNudgedAt?: Date | null;
 	approvedMinor?: bigint | null;
+	place?: { label: string; latE3: number; lngE3: number } | null;
 }) {
 	const id = uuid();
 	await db.insert(schema.purchase).values({
@@ -166,6 +184,10 @@ async function addPurchase(opts: {
 		nudgeCount: opts.nudgeCount ?? 0,
 		recurringRuleId: opts.recurringRuleId ?? null,
 		parentPurchaseId: null,
+		placeLabel: opts.place?.label ?? null,
+		latE3: opts.place?.latE3 ?? null,
+		lngE3: opts.place?.lngE3 ?? null,
+		locationSource: opts.place ? 'geocode' : null,
 		createdAt: daysAgo(opts.day),
 		updatedAt: daysAgo(opts.day)
 	});
@@ -780,6 +802,72 @@ for (let m = 0; m < 19; m++) {
 			effectiveTo: nextD.toISOString().slice(0, 10) as any
 		});
 	}
+}
+
+// ── Pinned purchases ─────────────────────────────────────────────────
+// The map draws the month, and the screenshot pass captures it: without a
+// handful of pins in the recent window the shot is the empty state. Chicago
+// neighborhoods, sized like a real week of food and hardware.
+const pins: {
+	item: string;
+	catIdx: number;
+	minor: bigint;
+	day: number;
+	place: { label: string; latE3: number; lngE3: number };
+}[] = [
+	{
+		item: 'Farmers market veg',
+		catIdx: 0,
+		minor: 34_12n,
+		day: 2,
+		place: { label: 'Andersonville Greenmarket', latE3: 41981, lngE3: -87667 }
+	},
+	{
+		item: 'Weekly groceries',
+		catIdx: 0,
+		minor: 137_40n,
+		day: 4,
+		place: { label: 'Pilsen Provisions', latE3: 41856, lngE3: -87656 }
+	},
+	{
+		item: 'Date night',
+		catIdx: 1,
+		minor: 86_20n,
+		day: 5,
+		place: { label: 'Wicker Park Table', latE3: 41903, lngE3: -87677 }
+	},
+	{
+		item: 'Shelf brackets',
+		catIdx: 7,
+		minor: 41_99n,
+		day: 6,
+		place: { label: 'Uptown Hardware', latE3: 41972, lngE3: -87659 }
+	},
+	{
+		item: 'Movie night',
+		catIdx: 2,
+		minor: 50_37n,
+		day: 8,
+		place: { label: 'Hyde Park Cinema', latE3: 41795, lngE3: -87593 }
+	},
+	{
+		item: 'Michigan Ave run',
+		catIdx: 5,
+		minor: 173_82n,
+		day: 9,
+		place: { label: 'Michigan Ave Shops', latE3: 41895, lngE3: -87624 }
+	}
+];
+for (const p of pins) {
+	await addPurchase({
+		member: aliceMember,
+		state: 'completed',
+		item: p.item,
+		catIdx: p.catIdx,
+		minor: p.minor,
+		day: p.day,
+		place: p.place
+	});
 }
 
 const [countRow] = await db.select({ count: sql`count(*)::int` }).from(schema.purchase);

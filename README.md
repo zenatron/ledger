@@ -313,7 +313,9 @@ documents each one and the app works without all of them.
 To put it behind a reverse proxy, forward to port 3000 and make sure
 `PUBLIC_ORIGIN` matches the external URL. The app trusts exactly one
 `X-Forwarded-For` hop, so the rate limiter sees real client addresses rather
-than your proxy.
+than your proxy. Compose publishes port 3000 on loopback only — the proxy is
+expected to run on the same host; if yours is on another machine, publish on
+`0.0.0.0` in `compose.yaml` and make sure nothing else can reach the port.
 
 ### Upgrading
 
@@ -345,8 +347,11 @@ bun run demo:preview # both of the above, then serves it
 
 The demo ships the ledger, a purchase's detail and the new-purchase form,
 buckets, income, analytics, the calendar, the month statement, recurring,
-categories, appearance and the workspace overview. Left out because they need a
-backend: auth, Harmony, MCP, the API, reconciliation, the map, CSV export and
+categories, appearance and the workspace overview. The new-purchase form's
+"describe it" field works in the tab too: the deterministic parser and the
+merchant memory it draws on are pure, so the demo's endpoint shim answers
+locally. Left out because they need a backend: auth, the Harmony palette, MCP,
+the API, reconciliation, the map, CSV export and
 the notification/member/model settings.
 
 It seeds two workspaces, so switching between them does something. Deleting one lands you on the other;
@@ -456,21 +461,32 @@ bun run demo:build && bun scripts/capture-screenshots.ts
 # 2. The pages that need a server behind them: Harmony, AI assist, members,
 #    the map, reconcile, API, notifications, and the accent set. Needs a seeded
 #    database and DEV_MODE.
-DEV_MODE=true bun run dev &
-CAPTURE_SERVER_WS=<slug> CAPTURE_DB_URL=$DATABASE_URL \
+bun run db:start
+DATABASE_URL=postgres://root:mysecretpassword@localhost:5432/local bun run seed
+DEV_MODE=true POCKET_ID_ISSUER=http://localhost:9443 \
+POCKET_ID_CLIENT_ID=budget-local POCKET_ID_CLIENT_SECRET=dev-secret \
+OIDC_REDIRECT_URI=http://localhost:5173/auth/callback \
+bun run dev &
+CAPTURE_SERVER_WS=demo CAPTURE_DB_URL=$DATABASE_URL \
   bun scripts/capture-screenshots.ts --server http://localhost:5173
 ```
+
+The seed adds the DEV_MODE auto-login user to the workspace as an owner (half
+the captured screens are owner-only) and turns places on, so the map shot has
+something to draw — it also seeds a few pinned purchases for the same reason.
 
 `CAPTURE_DB_URL` is what lets the accent shots write the column the accent
 actually lives in. Without it those shots still render, in whatever accent the
 workspace already has, and the run says so. The original accent is put back
 afterwards, so capturing is not a mutation.
 
-Pass one alone leaves the server-only images untouched and says so. Both write
-full-bleed PNGs to `static/screenshots/` for the web manifest, and the same
-shots with the phone's corner radius to `docs/screenshots/` for this file. The
-manifest's screenshot list is generated from the same array that drives the
-capture, so the two cannot drift.
+A partial run — pass one alone, or a seed with no pending approval — leaves
+the shots it didn't take untouched, and the manifest keeps their entries: a
+pass-one-only run can no longer quietly shrink the store listing. Both passes
+write full-bleed PNGs to `static/screenshots/` for the web manifest, and the
+same shots with the phone's corner radius to `docs/screenshots/` for this
+file. The manifest's screenshot list is generated from the same array that
+drives the capture, so the two cannot drift.
 
 Migrations run automatically on app boot (single-flight via Postgres advisory lock).
 
