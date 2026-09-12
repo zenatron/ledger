@@ -187,11 +187,17 @@ function parseCsvLines(text: string): string[][] {
 /**
  * Parse a bank-amount field into signed minor units (cents). Handles:
  *   $1,234.56  →  123456
+ *   1.234,56   →  123456   (decimal comma)
+ *   1,234      →  123400   (lone comma + 3 digits reads as thousands)
+ *   12,50      →  1250     (lone comma + 1-2 digits reads as decimal)
  *   -$100.00   → -10000
  *   (100.00)   → -10000   (accounting notation)
  *   100.00-    → -10000   (trailing minus)
  *   $0.00      →  0
  *   blank      →  null
+ *
+ * Digits are accumulated as integers — never through Number() — so large
+ * amounts cannot drift by float rounding.
  */
 function parseAmount(raw: string): bigint | null {
 	const s = raw.trim();
@@ -217,24 +223,53 @@ function parseAmount(raw: string): bigint | null {
 	const leadingMinus = cleaned.startsWith('-');
 	if (leadingMinus) cleaned = cleaned.slice(1).trim();
 
-	// Remove thousands separators (commas or dots depending on decimal marker).
-	// Determine decimal marker: last occurrence of , or . in the last 4 chars.
-	let decimal = '.';
+	if (!/^[0-9.,]+$/.test(cleaned)) return null;
+
+	// Classify the separators. When both kinds appear, the last one is the
+	// decimal marker and the other is grouping. When only one kind appears,
+	// a lone separator with a three-digit tail and a 1-3 digit integer part
+	// is grouping ("1,234" — whole amounts, the common bank form); anything
+	// else it is a decimal marker ("12,50", "0,500", "12345.678"). Repeated
+	// separators always group.
+	let digits: string;
+	let frac = '';
 	const lastComma = cleaned.lastIndexOf(',');
 	const lastDot = cleaned.lastIndexOf('.');
-	if (lastComma > lastDot && lastComma >= cleaned.length - 4) {
-		decimal = ',';
+	if (lastComma !== -1 && lastDot !== -1) {
+		const decimal = lastComma > lastDot ? ',' : '.';
+		const grouping = decimal === ',' ? '.' : ',';
+		const cut = cleaned.lastIndexOf(decimal);
+		digits = cleaned.slice(0, cut).replaceAll(grouping, '');
+		frac = cleaned.slice(cut + 1);
+	} else if (lastComma !== -1 || lastDot !== -1) {
+		const sep = lastComma !== -1 ? ',' : '.';
+		const occurrences = cleaned.split(sep).length - 1;
+		const cut = cleaned.lastIndexOf(sep);
+		const head = cleaned.slice(0, cut);
+		const tail = cleaned.slice(cut + 1);
+		const groupsAsThousand =
+			occurrences > 1 || (/^\d{3}$/.test(tail) && /^\d{1,3}$/.test(head) && !/^0+$/.test(head));
+		if (groupsAsThousand) {
+			digits = cleaned.replaceAll(sep, '');
+		} else {
+			digits = head;
+			frac = tail;
+		}
+	} else {
+		digits = cleaned;
 	}
 
-	const numPart =
-		decimal === ',' ? cleaned.replace(/\./g, '').replace(',', '.') : cleaned.replace(/,/g, '');
+	if (!/^\d*$/.test(digits) || !/^\d*$/.test(frac) || (digits.length === 0 && frac.length === 0)) {
+		return null;
+	}
 
-	const n = Number(numPart);
-	if (!isFinite(n)) return null;
+	// Round half-up at the second fraction digit; cents is the unit of record.
+	const head = frac.slice(0, 2).padEnd(2, '0');
+	let minor = BigInt(digits.length === 0 ? '0' : digits) * 100n + BigInt(head);
+	if (frac.length > 2 && frac[2] >= '5') minor += 1n;
 
-	const sign = negative || leadingMinus || trailingMinus ? -1 : 1;
-	const minor = BigInt(Math.round(sign * n * 100));
-	return minor;
+	const sign = negative || leadingMinus || trailingMinus ? -1n : 1n;
+	return sign * minor;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +289,7 @@ function parseDate(raw: string, order: 'MDY' | 'DMY' | 'YMD'): Date | null {
 	if (iso) return localDate(+iso[1], +iso[2], +iso[3]);
 
 	// Compact: 20240115
-	const compact = /^(\d{4})(\d{2})(\d{4})$/.exec(s);
+	const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(s);
 	if (compact) {
 		return localDate(+compact[1], +compact[2], +compact[3]);
 	}

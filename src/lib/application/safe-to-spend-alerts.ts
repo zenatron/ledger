@@ -47,11 +47,23 @@ export async function sendSafeToSpendAlerts(
 		const monthStr = `${period.from.y}-${pad(period.from.m)}-${pad(period.from.d)}`;
 
 		const members = await db
-			.select({ id: workspaceMember.id, userId: workspaceMember.userId })
+			.select({
+				id: workspaceMember.id,
+				userId: workspaceMember.userId,
+				alertMonth: workspaceMember.safeToSpendAlertMonth,
+				alertLevel: workspaceMember.safeToSpendAlertLevel
+			})
 			.from(workspaceMember)
 			.where(and(eq(workspaceMember.workspaceId, ws.id), eq(workspaceMember.status, 'active')));
 
 		for (const m of members) {
+			// Cheap pre-gate before the forecast: level only ever escalates (the
+			// high-water mark below is the claim rule), so a member already at the
+			// top level for this month can never need another look. Everyone else
+			// still computes — there is no sound cheaper test, because bills and
+			// bucket savings can tip a quiet-looking month.
+			if (m.alertMonth === monthStr && m.alertLevel === 2) continue;
+
 			const forecast = await safeToSpend(
 				db,
 				{ workspaceId: ws.id, viewerId: m.id, timezone: ws.timezone },

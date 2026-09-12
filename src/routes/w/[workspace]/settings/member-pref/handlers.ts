@@ -3,6 +3,7 @@ import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { isDiscretionMode } from '$lib/domain/visibility/discretion';
 import { workspaceMember } from '$lib/db/schema';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * The member-flag endpoint's sibling for prefs that aren't booleans — same
@@ -10,6 +11,7 @@ import { workspaceMember } from '$lib/db/schema';
  * against the domain before anything reaches a column.
  */
 export async function POST(ctx: WorkspaceContext, { request }: { request: Request }) {
+	assertSameOrigin(request);
 	const body = await request.json().catch(() => null);
 	const pref = body?.pref;
 	const value = body?.value;

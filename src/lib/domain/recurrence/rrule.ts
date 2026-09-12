@@ -251,7 +251,10 @@ export function nextOccurrence(rec: Recurrence, after: CalDate): CalDate {
 			throw new RecurrenceError('No next weekly occurrence found'); // unreachable
 		}
 		case 'monthly': {
-			const day = rec.byMonthDay ?? Math.min(rec.start.d, 28);
+			// No BYMONTHDAY means "same day as DTSTART" — the real day, not a
+			// pre-clamped one. clampDay handles short months below; pre-clamping
+			// here would bill a rule that starts on the 31st on the 28th forever.
+			const day = rec.byMonthDay ?? rec.start.d;
 			const startMonths = rec.start.y * 12 + (rec.start.m - 1);
 			for (let k = 0; k < 1000; k++) {
 				const months = startMonths + k * rec.interval;
@@ -266,7 +269,7 @@ export function nextOccurrence(rec: Recurrence, after: CalDate): CalDate {
 		}
 		case 'yearly': {
 			const month = rec.byMonth ?? rec.start.m;
-			const day = rec.byMonthDay ?? Math.min(rec.start.d, 28);
+			const day = rec.byMonthDay ?? rec.start.d;
 			for (let k = 0; k < 200; k++) {
 				const y = rec.start.y + k * rec.interval;
 				const candidate = { y, m: month, d: clampDay(y, month, day) };

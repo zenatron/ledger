@@ -305,8 +305,8 @@
 			<p class="section-label">A scanned bill</p>
 			<p class="mt-2 text-[14px] leading-relaxed" style="color: var(--ink-2)">
 				There's no text in this PDF to read, so it's a picture of a page. Harmony can look at it and
-				try to make out the amount. That takes a moment, and you'll confirm the guess before
-				it's logged.
+				try to make out the amount. That takes a moment, and you'll confirm the guess before it's
+				logged.
 			</p>
 			{#if vision.allowed && !vision.certain}
 				<p class="mt-2 text-[12.5px] leading-relaxed" style="color: var(--ink-3)">

@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNotNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Db } from '$lib/db/types';
 import {
@@ -43,10 +43,14 @@ function sealOpenTo(
 ): SQL {
 	return or(
 		sql`not (${t.sealedFromMemberIds} @> array[${viewerId}]::uuid[])`,
+		// The seal has opened — stated explicitly rather than as a bare lte, so
+		// a malformed open-ended seal (conceal list set, sealed_until NULL) fails
+		// closed by rule. As a bare lte it would evaluate to SQL NULL and hide
+		// from the concealed viewer by accident instead.
 		// lte, not raw sql: it binds through the column's timestamptz mapping.
 		// Interpolating the Date directly sends Date.toString(), which Postgres
-		// cannot parse — that broke every seal-filtered read.
-		lte(t.sealedUntil, now)
+		// cannot parse — that broke every seal-filtered read once.
+		and(isNotNull(t.sealedUntil), lte(t.sealedUntil, now))
 	)!;
 }
 

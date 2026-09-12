@@ -543,6 +543,15 @@
 		-webkit-backdrop-filter: saturate(1.2) blur(20px);
 	}
 
+	/* No blur, no frost: where backdrop-filter is unavailable the 18% see-through
+	 * lets scrolled content collide with header icons. Solid paper reads better
+	 * than a frosted effect that never frosts. */
+	@supports not (backdrop-filter: blur(1px)) {
+		.material {
+			background: var(--paper);
+		}
+	}
+
 	/*
 	 * @tailwindcss/forms paints every text control with a blue-600 ring on
 	 * :focus. Those rules live in @layer base at (0,1,1) — and base is

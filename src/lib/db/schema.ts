@@ -371,6 +371,20 @@ export const purchase = pgTable(
 		index('purchase_workspace_completed_idx').on(t.workspaceId, t.completedAt),
 		// Seal filtering.
 		index('purchase_sealed_from_gin').using('gin', t.sealedFromMemberIds),
+		// Sweep probes. These run every five minutes against every workspace;
+		// partial indexes keep each an index-only probe instead of a full scan.
+		index('purchase_due_unseal_idx')
+			.on(t.sealedUntil)
+			.where(sql`cardinality(sealed_from_member_ids) > 0`),
+		index('purchase_due_hold_release_idx')
+			.on(t.heldUntil)
+			.where(sql`state = 'held' and held_notified_at is null`),
+		// Safe-to-Spend / ledger "open money" reads: approved, pending and held
+		// rows are a small fraction of history and the only unbounded-time states
+		// the forecast aggregates.
+		index('purchase_open_states_idx')
+			.on(t.workspaceId)
+			.where(sql`state in ('approved', 'pending_approval', 'held')`),
 		index('purchase_member_idx').on(t.memberId),
 		// FK lookups: bucket detail lists its purchases, and archiving scans by it.
 		index('purchase_bucket_idx').on(t.bucketId),
@@ -390,7 +404,14 @@ export const purchase = pgTable(
 		// would put a bubble on the prime meridian.
 		check('purchase_latlng_paired', sql`(${t.latE3} is null) = (${t.lngE3} is null)`),
 		check('purchase_lat_range', sql`${t.latE3} is null or ${t.latE3} between -90000 and 90000`),
-		check('purchase_lng_range', sql`${t.lngE3} is null or ${t.lngE3} between -180000 and 180000`)
+		check('purchase_lng_range', sql`${t.lngE3} is null or ${t.lngE3} between -180000 and 180000`),
+		// A seal has two halves: who it hides from and when it opens. An
+		// open-ended seal would hide from the concealed viewer forever (the
+		// visibility predicate fails closed), so both must move together.
+		check(
+			'purchase_seal_paired',
+			sql`cardinality(${t.sealedFromMemberIds}) = 0 or ${t.sealedUntil} is not null`
+		)
 	]
 );
 
@@ -581,7 +602,14 @@ export const bucket = pgTable(
 		nextAccrualAt: timestamp('next_accrual_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
 	},
-	(t) => [index('bucket_workspace_idx').on(t.workspaceId)]
+	(t) => [
+		index('bucket_workspace_idx').on(t.workspaceId),
+		// The accrual sweep's candidate probe, every five minutes: active
+		// buckets are nearly all of them, but the scan is by pointer, not id.
+		index('bucket_due_accrual_idx')
+			.on(t.nextAccrualAt)
+			.where(sql`status = 'active'`)
+	]
 );
 
 export const bucketTransaction = pgTable(

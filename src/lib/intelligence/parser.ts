@@ -2,6 +2,7 @@
  * Rule-based natural language parser for budget queries and commands.
  * No AI — just token matching, entity extraction, and pattern routing.
  */
+import { calDateInZone } from '$lib/domain/time/zoned';
 
 export interface SpendingQuery {
 	intent: 'spending_query';
@@ -137,9 +138,14 @@ const MONTHS: Record<string, number> = {
 	dec: 12
 };
 
-function resolvePeriod(input: string, now: Date): TimePeriod {
-	const currentYear = now.getFullYear();
-	const currentMonth = now.getMonth() + 1;
+function resolvePeriod(input: string, now: Date, zone?: string): TimePeriod {
+	// "Now" in the workspace's zone, not the server's: a UTC server answering
+	// "this month" for a UTC+13 workspace must not spend the first 13 hours of
+	// a month answering with the previous one. Weeks are excluded — the caller
+	// re-derives those from the workspace's own week-start day.
+	const today = zone ? calDateInZone(now, zone) : null;
+	const currentYear = today ? today.y : now.getFullYear();
+	const currentMonth = today ? today.m : now.getMonth() + 1;
 
 	const lower = input.toLowerCase().trim();
 
@@ -266,7 +272,9 @@ function extractDayOfMonth(lower: string): number {
 	const anchored = lower.match(/\b(?:on\s+the|every|day)\s+(\d+)(?:st|nd|rd|th)?\b/);
 	if (anchored) {
 		const d = parseInt(anchored[1]);
-		if (d >= 1 && d <= 28) return d;
+		// 29-31 are real schedules (clampDay shortens February); out of range
+		// falls through to the default below.
+		if (d >= 1 && d <= 31) return d;
 	}
 
 	// Bare ordinal ("the 15th"): only ordinals, so an amount can't be mistaken
@@ -274,7 +282,7 @@ function extractDayOfMonth(lower: string): number {
 	const ordinal = lower.match(/\b(\d+)(?:st|nd|rd|th)\b/);
 	if (ordinal) {
 		const d = parseInt(ordinal[1]);
-		if (d >= 1 && d <= 28) return d;
+		if (d >= 1 && d <= 31) return d;
 	}
 	return 1;
 }
@@ -304,9 +312,11 @@ const NAV_TARGETS: Record<string, NavigateCommand['target']> = {
 /**
  * `now` is a parameter, not `new Date()` inside: every relative period ("last
  * month", "this year") is resolved against it, so tests can pin a date instead
- * of changing answers every month.
+ * of changing answers every month. `zone` (an IANA name) shifts that reading to
+ * a workspace's wall clock; the browser palette omits it because the device's
+ * own zone is the right one there.
  */
-export function parse(input: string, now: Date = new Date()): ParsedIntent {
+export function parse(input: string, now: Date = new Date(), zone?: string): ParsedIntent {
 	const lower = input.toLowerCase().trim();
 	if (!lower) return { intent: 'unknown', raw: input };
 
@@ -469,13 +479,13 @@ export function parse(input: string, now: Date = new Date()): ParsedIntent {
 			lower
 		)
 	) {
-		const period = resolvePeriod(lower, now);
+		const period = resolvePeriod(lower, now, zone);
 		return { intent: 'net_position', period };
 	}
 
 	// Spending query: "how much did I spend on X", "what did I spend on Y last month"
 	if (/\b(?:how\s+much|what|show\s+me|spend(?:ing)?|spent)\b/.test(lower)) {
-		const period = resolvePeriod(lower, now);
+		const period = resolvePeriod(lower, now, zone);
 
 		// Check for member: "how much did alice spend"
 		const memberMatch = lower.match(

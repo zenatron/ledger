@@ -59,7 +59,26 @@ const NtfySchema = v.object({
 		v.trim(),
 		v.regex(/^[A-Za-z0-9_-]{4,64}$/, 'Topic: 4–64 letters, digits, - or _')
 	),
-	serverUrl: v.pipe(v.string(), v.trim(), v.url('Server must be a URL'))
+	serverUrl: v.pipe(
+		v.string(),
+		v.trim(),
+		v.url('Server must be a URL'),
+		// The server POSTs to whatever this names, so the same rules as every
+		// other outbound URL: http(s) only, no credentials, and no link-local
+		// (that is where cloud metadata lives). Your own LAN stays allowed —
+		// a self-hosted ntfy is half the point.
+		v.check((s) => {
+			try {
+				const u = new URL(s);
+				if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+				if (u.username || u.password) return false;
+				if (/^169\.254\./.test(u.hostname) || u.hostname === '0.0.0.0') return false;
+				return true;
+			} catch {
+				return false;
+			}
+		}, 'Server must be an http(s) URL, no credentials')
+	)
 });
 
 export const actions: Actions = {
@@ -99,15 +118,20 @@ export const actions: Actions = {
 	ntfyTest: async ({ locals }) => {
 		const target = await getNtfyTarget(getDb(), locals.user!.id);
 		if (!target) return fail(400, { section: 'ntfy', error: 'Save a topic first' });
+		const env = getEnv();
 		const ok = await sendNtfy(
 			target,
 			{
 				title: 'Budget test',
 				body: 'ntfy is wired up correctly.',
 				path: `/w/${locals.workspace!.slug}`,
-				origin: getEnv().PUBLIC_ORIGIN
+				origin: env.PUBLIC_ORIGIN
 			},
-			getEnv().NTFY_DEFAULT_TOKEN
+			// Same scoping as the notifier: the shared token only rides to the
+			// server it was configured for.
+			env.NTFY_DEFAULT_TOKEN
+				? { value: env.NTFY_DEFAULT_TOKEN, origin: env.NTFY_SERVER_URL ?? 'https://ntfy.sh' }
+				: undefined
 		);
 		return ok
 			? { section: 'ntfy', ok: true, tested: true }

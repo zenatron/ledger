@@ -1,11 +1,11 @@
 import { error, json } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-import { getEnv } from '$lib/server/env';
 import { getImport, getLine, matchCandidates } from '$lib/repo/statements';
 import { suggestMatch } from '$lib/application/suggest-match';
 import { getLlmAssist } from '$lib/infra/llm';
 import { systemClock } from '$lib/infra/time/system-clock';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * "Help me find this" for one unmatched statement line.
@@ -31,14 +31,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // Same reasoning as the intelligence endpoint: SvelteKit's form-action CSRF
 // check doesn't cover a standalone handler, and this one reads workspace data.
-function assertSameOrigin(request: Request): void {
-	const origin = request.headers.get('origin');
-	const allowed = new URL(getEnv().PUBLIC_ORIGIN).origin;
-	if (origin !== allowed && origin !== new URL(request.url).origin) {
-		error(403, 'Cross-origin request rejected');
-	}
-}
-
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	assertSameOrigin(request);
 

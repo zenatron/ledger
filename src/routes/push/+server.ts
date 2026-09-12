@@ -1,21 +1,13 @@
 import { error, json } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
-import { getEnv } from '$lib/server/env';
 import { deletePushSubscription, upsertPushSubscription } from '$lib/repo/notifications';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
 import { systemClock } from '$lib/infra/time/system-clock';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 // Standalone endpoints skip SvelteKit's form-action CSRF check.
-function assertSameOrigin(request: Request): void {
-	const origin = request.headers.get('origin');
-	const allowed = new URL(getEnv().PUBLIC_ORIGIN).origin;
-	if (origin !== allowed && origin !== new URL(request.url).origin) {
-		error(403, 'Cross-origin request rejected');
-	}
-}
-
 const SubscriptionSchema = v.object({
 	endpoint: v.pipe(v.string(), v.url()),
 	keys: v.object({

@@ -1,6 +1,6 @@
 import type { WorkspaceContext } from '$lib/ports/context';
 import type { ActionEvent, LoadEvent } from '$lib/ports/handlers';
-import { eq } from 'drizzle-orm';
+import { and, eq, exists, sql } from 'drizzle-orm';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { Money, InvalidMoneyError } from '$lib/domain/money/money';
 import { PurchaseStateError } from '$lib/domain/purchase/purchase';
@@ -35,7 +35,7 @@ import {
 } from '$lib/application/hold';
 import { calDateInZone, zonedTimeToUtc } from '$lib/domain/time/zoned';
 import { addDays } from '$lib/domain/recurrence/rrule';
-import { listEvents, loadPurchase, memberNames } from '$lib/repo/purchases';
+import { listEvents, loadPurchase, memberNames, visibleTo } from '$lib/repo/purchases';
 import { listCategories } from '$lib/repo/workspaces';
 import { bucketBalance, loadBucket } from '$lib/repo/buckets';
 import { getNtfyTarget, listPushSubscriptions } from '$lib/repo/notifications';
@@ -65,11 +65,24 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 		memberNames(db, [p.memberId, ...p.approverMemberIds, ...p.sealedFromMemberIds]),
 		listCategories(db, ctx.workspace.id),
 		listImages(db, scope, p.id, now),
-		// Merchant names for the edit field's autocomplete.
+		// Merchant names for the edit field's autocomplete. Enters through the
+		// purchase like every other merchant read (see the "seal trap" note on
+		// the schema): a merchant a gift was bought at must not be suggested to
+		// the person it is hidden from, so only merchants of a visible purchase.
 		db
 			.select({ name: merchant.name })
 			.from(merchant)
-			.where(eq(merchant.workspaceId, ctx.workspace.id))
+			.where(
+				and(
+					eq(merchant.workspaceId, ctx.workspace.id),
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(purchaseTable)
+							.where(and(eq(purchaseTable.merchantId, merchant.id), visibleTo(ctx.member.id, now)))
+					)
+				)
+			)
 			.orderBy(merchant.name),
 		// createdAt for the recency gate on the delete affordance.
 		db

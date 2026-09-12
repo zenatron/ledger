@@ -66,3 +66,15 @@ export function tryParseMinor(input: string, currency: string): bigint | null {
 		return null;
 	}
 }
+
+/**
+ * The decimal-string form an `<input use:money>` expects: plain digits, one
+ * dot, the currency's fraction digits, no grouping and no symbol. Forms must
+ * preseed with this rather than stripping formatMinor's output — the formatted
+ * string follows the device locale, and on comma-decimal locales stripping
+ * non-digits silently re-values the amount ($1.234,56 becomes 1.23).
+ */
+export function minorToDecimalInput(minor: bigint | number, currency: string): string {
+	const digits = minorUnitDigits(currency);
+	return (Number(minor) / 10 ** digits).toFixed(digits);
+}

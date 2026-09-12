@@ -8,10 +8,12 @@ import {
 	complete,
 	deny,
 	edit,
+	hold,
 	markRefunded,
 	needsReapproval,
 	overrideDenial,
 	requestApproval,
+	wake,
 	PurchaseStateError,
 	type Purchase,
 	type PurchaseState
@@ -456,5 +458,43 @@ describe('place', () => {
 	it('does not make a purchase without one invalid', () => {
 		expect(draft().place).toBeNull();
 		expect(requestApproval(draft(), ['m-approver'], NOW).purchase.place).toBeNull();
+	});
+});
+
+describe('hold / wake', () => {
+	const LATER = new Date('2026-07-05T12:00:00Z');
+
+	it('wakes a held-approved purchase back to approved, not pending', () => {
+		// The approvers snapshot stays on an approved purchase, so presence of
+		// approvers is not evidence that a decision is outstanding.
+		const slept = hold(approved(), 'm-approver', LATER, NOW).purchase;
+		const { purchase, event } = wake(slept, 'm-approver', NOW);
+		expect(purchase.state).toBe('approved');
+		expect(purchase.approvedAmount!.minor).toBe(18000n);
+		expect(purchase.decidedAt).toBe(NOW);
+		expect(event.toState).toBe('approved');
+	});
+
+	it('wakes a held request back to pending with the clock restarted', () => {
+		const slept = hold(pending(), 'm-requester', LATER, NOW).purchase;
+		const later = new Date('2026-07-02T12:00:00Z');
+		const { purchase, event } = wake(slept, 'm-requester', later);
+		expect(purchase.state).toBe('pending_approval');
+		expect(purchase.requestedAt).toBe(later);
+		expect(event.toState).toBe('pending_approval');
+	});
+
+	it('wakes an overage bounce-back to pending, still mid-re-approval', () => {
+		// complete() parked a final amount and sent it back for another look;
+		// decidedAt survives from the first round, but a decision is outstanding.
+		const bounced = pending({ decidedAt: NOW, finalAmount: usd(22000) });
+		const slept = hold(bounced, 'm-requester', LATER, NOW).purchase;
+		const { purchase } = wake(slept, 'm-requester', NOW);
+		expect(purchase.state).toBe('pending_approval');
+		expect(purchase.finalAmount!.minor).toBe(22000n);
+	});
+
+	it('refuses to sleep on a completed purchase', () => {
+		expect(() => hold(completed(), 'm-requester', LATER, NOW)).toThrow(PurchaseStateError);
 	});
 });

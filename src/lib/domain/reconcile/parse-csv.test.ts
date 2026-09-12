@@ -133,6 +133,54 @@ describe('parseCsv', () => {
 		expect(r.lines[0].amountMinor).toBe(usd(123456));
 	});
 
+	it('reads a lone comma before three digits as thousands, not decimal', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Shop,"1,234"';
+		const r = parseCsv(csv, 'USD');
+		expect(r.lines[0].amountMinor).toBe(usd(123400));
+	});
+
+	it('reads repeated commas as thousands grouping', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Shop,"1,234,567"';
+		const r = parseCsv(csv, 'USD');
+		expect(r.lines[0].amountMinor).toBe(usd(123456700));
+	});
+
+	it('reads a lone comma before 1-2 digits as a decimal comma', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Café,"12,5"';
+		const r = parseCsv(csv, 'EUR');
+		expect(r.lines[0].amountMinor).toBe(usd(1250));
+	});
+
+	it('reads dot-grouped decimal-comma amounts (1.234,56)', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Café,"1.234,56"';
+		const r = parseCsv(csv, 'EUR');
+		expect(r.lines[0].amountMinor).toBe(usd(123456));
+	});
+
+	it('reads dot-grouped whole amounts (1.234) as thousands', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Café,"1.234"';
+		const r = parseCsv(csv, 'EUR');
+		expect(r.lines[0].amountMinor).toBe(usd(123400));
+	});
+
+	it('keeps exact cents on large amounts without float drift', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Rent,"90071992547409.93"';
+		const r = parseCsv(csv, 'USD');
+		expect(r.lines[0].amountMinor).toBe(9007199254740993n);
+	});
+
+	it('reads a lone decimal separator with a zero integer part as decimal', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Fee,0.500';
+		const r = parseCsv(csv, 'USD');
+		expect(r.lines[0].amountMinor).toBe(usd(50));
+	});
+
+	it('rounds a third fraction digit half-up', () => {
+		const csv = 'Date,Description,Amount\n2024-01-15,Shop,"0,125"';
+		const r = parseCsv(csv, 'EUR');
+		expect(r.lines[0].amountMinor).toBe(13n);
+	});
+
 	it('handles parenthetical negative notation', () => {
 		const csv = 'Date,Description,Amount\n2024-01-15,Refund,(100.00)';
 		const r = parseCsv(csv, 'USD');
@@ -170,6 +218,12 @@ describe('parseCsv', () => {
 
 	it('parses ISO 8601 dates', () => {
 		const csv = 'Date,Description,Amount\n2024-01-15,Shop,10.00';
+		const r = parseCsv(csv, 'USD');
+		expect(r.lines[0].postedAt.toISOString().slice(0, 10)).toBe('2024-01-15');
+	});
+
+	it('parses compact 20240115 dates', () => {
+		const csv = 'Date,Description,Amount\n20240115,Shop,10.00';
 		const r = parseCsv(csv, 'USD');
 		expect(r.lines[0].postedAt.toISOString().slice(0, 10)).toBe('2024-01-15');
 	});

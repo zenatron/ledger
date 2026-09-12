@@ -143,6 +143,35 @@ describe('parsePurchaseText', () => {
 			expect(r.amount).toBe('4');
 		});
 
+		it('pins an ISO date with an explicit year instead of the recent one', () => {
+			// Most recent Jul 30 is -3 days, but the year was said: 2024 it is.
+			const r = parsePurchaseText('2024-07-30 coffee $4', today);
+			expect(r.dateOffsetDays).toBe(-733);
+			expect(r.amount).toBe('4');
+			expect(r.dateLabel).toBe('2024-07-30');
+		});
+
+		it('consumes a trailing year on a month-day date', () => {
+			// The year must leave with the date: if it stayed, "2024" is a bare
+			// integer and the amount extractor bills it.
+			const r = parsePurchaseText('flight jan 12 2024', today);
+			expect(r.dateOffsetDays).toBe(-933);
+			expect(r.amount).toBeNull();
+			expect(r.itemName).toBe('flight');
+		});
+
+		it('does not read a stray large number as a year', () => {
+			const r = parsePurchaseText('lunch jan 12 4500', today);
+			// 4500 is out of the plausible year range, so the date falls back to
+			// the most recent Jan 12 and the 4500 is left for the amount.
+			expect(r.dateOffsetDays).toBe(-202);
+			expect(r.amount).toBe('4500');
+		});
+
+		it('resolves nothing for a plausible but future explicit date', () => {
+			expect(parsePurchaseText('2027-01-01 coffee', today).dateOffsetDays).toBe(0);
+		});
+
 		// One component over 12 settles the order; a bare 12/03 never can, so it
 		// is left unread rather than guessed at.
 		it('reads a slash date only when it is unambiguous', () => {

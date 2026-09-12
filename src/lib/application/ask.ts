@@ -102,10 +102,10 @@ export function safeName(raw: string, maxLen = 120): string | null {
 	return cleaned.length > maxLen ? cleaned.slice(0, maxLen).trim() : cleaned;
 }
 
-/** -1 means "last day of the month"; otherwise clamp to 1-28. */
+/** -1 means "last day of the month"; otherwise clamp to 1-31. */
 export function normalizeDay(d: number): number {
-	if (d === -1) return 28;
-	return Math.min(Math.max(d, 1), 28);
+	if (d === -1) return -1;
+	return Math.min(Math.max(d, 1), 31);
 }
 
 export function moneyFromNumber(amount: number, currency: string): Money | null {
@@ -157,7 +157,7 @@ export function buildActionOutcome(
 		return {
 			kind: 'proposal',
 			intent: 'propose',
-			answer: `Create bucket “${name}”: ${amount.format()}/mo on day ${day}`,
+			answer: `Create bucket “${name}”: ${amount.format()}/mo on ${day === -1 ? 'the last day' : `day ${day}`}`,
 			propose: {
 				intent: 'create_bucket',
 				name,
@@ -191,7 +191,7 @@ export function buildActionOutcome(
 		return {
 			kind: 'proposal',
 			intent: 'propose',
-			answer: `Add income “${source}”: ${amount.format()} ${cadence}${action.monthly ? `, day ${day}` : ''}`,
+			answer: `Add income “${source}”: ${amount.format()} ${cadence}${action.monthly ? `, ${day === -1 ? 'last day' : `day ${day}`}` : ''}`,
 			propose: {
 				intent: 'create_income',
 				source,

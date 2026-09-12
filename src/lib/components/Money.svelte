@@ -19,11 +19,16 @@
 		class?: string;
 	} = $props();
 
-	let reduce = $derived(
-		typeof window !== 'undefined'
-			? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-			: true
-	);
+	// Live, not one-shot: flipping the OS setting mid-session must take effect
+	// without a reload, exactly as theme.svelte.ts re-reads its media query.
+	const media =
+		typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+	let reduce = $state(media?.matches ?? true);
+	$effect(() => {
+		const onChange = () => (reduce = media?.matches ?? true);
+		media?.addEventListener('change', onChange);
+		return () => media?.removeEventListener('change', onChange);
+	});
 
 	let text = $derived.by(() => {
 		const body = formatMinor(minor < 0n ? -minor : minor, currency);
@@ -47,12 +52,38 @@
 			}
 		};
 	}
+
+	/*
+	 * The roll must never own the resting state. A glyph mounted offscreen —
+	 * a Money below the fold, or one that lands mid view-transition — can have
+	 * its animation throttled by the browser and sit frozen on its first frame:
+	 * a blank where a digit belongs, until a scroll happens to resume it. So
+	 * after the longest possible roll has certainly finished, every glyph is
+	 * forced to its final, fully-visible style. A completed roll is a no-op;
+	 * a frozen one snaps clean.
+	 */
+	let host: HTMLElement | undefined = $state();
+	$effect(() => {
+		// Track chars so a later value change re-arms the settle for new glyphs.
+		void chars;
+		void masked;
+		if (reduce || !host) return;
+		const timer = setTimeout(() => {
+			for (const el of host!.querySelectorAll<HTMLElement>('span')) {
+				el.style.animation = 'none';
+				el.style.opacity = '1';
+				el.style.transform = 'none';
+			}
+		}, 1500);
+		return () => clearTimeout(timer);
+	});
 </script>
 
 <span
 	class="num {cls}"
 	style="overflow:hidden;display:{block ? 'block' : 'inline-flex'}"
 	aria-hidden={masked ? 'true' : undefined}
+	bind:this={host}
 >
 	{#each chars as c, i (i + ':' + c)}
 		<span in:roll={{ i }} style="display:inline-block;white-space:pre">{c}</span>

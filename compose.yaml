@@ -5,7 +5,13 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      # Loopback only, matching the db below: the intended topology is a
+      # reverse proxy on this host forwarding to :3000. Binding all interfaces
+      # would let anything on the LAN reach the app directly and spoof
+      # X-Forwarded-For, minting a fresh rate-limit bucket per request. If your
+      # proxy runs on another machine, publish on 0.0.0.0 and make sure nothing
+      # else can reach the port.
+      - '127.0.0.1:3000:3000'
     environment:
       DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
       BLOB_DIR: /data/blobs

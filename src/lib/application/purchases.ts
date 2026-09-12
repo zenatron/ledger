@@ -271,6 +271,10 @@ export async function submitPurchase(
 				})
 				.from(bucket)
 				.where(and(eq(bucket.id, cmd.bucketId), eq(bucket.workspaceId, scope.workspaceId)))
+				// The row lock serializes concurrent chargers: the overdraw judgement
+				// below is only as good as the balance it reads, and two submits
+				// racing one near-empty bucket must not both see the same one.
+				.for('update')
 				.limit(1);
 			if (!bkt) throw new PurchaseStateError('Bucket not found');
 			if (bkt.status !== 'active')
@@ -427,6 +431,14 @@ export async function refundPurchase(
 			throw new PurchaseStateError('Sealed purchases cannot be refunded until the seal opens');
 		}
 		if (!amount.isPositive) throw new PurchaseStateError('Refund amount must be positive');
+		// Refunds mix minor units with the parent's remaining total below and
+		// the child inherits the parent's currency, so a foreign denomination
+		// must not slip in.
+		if (amount.currency !== p.finalAmount!.currency) {
+			throw new PurchaseStateError(
+				`This purchase was made in ${p.finalAmount!.currency}; got ${amount.currency}`
+			);
+		}
 
 		const [prior] = await tx
 			.select({ refunded: sql<string>`coalesce(sum(${purchaseTable.finalAmountMinor}), 0)` })
@@ -533,7 +545,7 @@ export async function deletePurchase(
 	purchaseId: string
 ): Promise<void> {
 	const now = deps.clock.now();
-	await db.transaction(async (tx) => {
+	const removedPurchase = await db.transaction(async (tx) => {
 		const p = await loadPurchase(
 			tx,
 			{ workspaceId: scope.workspaceId, viewerId: scope.memberId },
@@ -665,7 +677,25 @@ export async function deletePurchase(
 			);
 		}
 		await tx.delete(purchaseTable).where(eq(purchaseTable.id, p.id));
+		return p;
 	});
+	// Pages showing this purchase — a pending queue, an approver's badge — must
+	// hear that it is gone: the publish is what makes them refetch. No push,
+	// though: a deletion is bookkeeping, not news for someone's phone.
+	await announcePurchaseChange(
+		db,
+		deps.notifier,
+		removedPurchase,
+		{
+			fromState: removedPurchase.state,
+			toState: removedPurchase.state,
+			actorMemberId: scope.memberId,
+			reason: 'deleted',
+			amountSnapshot: null,
+			at: now
+		},
+		{ push: false }
+	);
 }
 
 /**

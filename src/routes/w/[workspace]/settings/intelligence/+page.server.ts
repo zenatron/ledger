@@ -18,13 +18,24 @@ const ConfigSchema = v.object({
 });
 
 function validateEndpoint(endpoint: string): string | null {
+	let u: URL;
 	try {
-		const u = new URL(endpoint);
-		if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'Endpoint must be http or https';
-		return null;
+		u = new URL(endpoint);
 	} catch {
 		return 'Endpoint is not a valid URL';
 	}
+	if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'Endpoint must be http or https';
+	// Credentials in the URL would sit in the database and ride along on every
+	// fetch; the key field is where secrets belong.
+	if (u.username || u.password) return 'Put any API key in the key field, not the URL';
+	// Link-local is where cloud metadata lives — the one address that turns a
+	// probed endpoint into stolen credentials on a hosted deployment. Loopback
+	// and the private LAN stay allowed: pointing this at an Ollama on your own
+	// machine is the feature.
+	if (/^169\.254\./.test(u.hostname) || u.hostname === '0.0.0.0') {
+		return 'That address is not allowed';
+	}
+	return null;
 }
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -170,10 +181,15 @@ export const actions: Actions = {
 					}
 				};
 			} catch (e) {
+				const msg = e instanceof Error ? e.message : 'Could not reach Ollama';
 				return {
 					test: {
 						ok: false,
-						detail: e instanceof Error ? e.message : 'Could not reach Ollama'
+						// Connection and status errors are operator-useful and say
+						// nothing about the target. A JSON parse error, though, quotes
+						// a slice of whatever answered — for a mistyped internal
+						// address that is a read primitive, so it gets a fixed line.
+						detail: /json/i.test(msg) ? 'That endpoint answered, but not with a model list.' : msg
 					}
 				};
 			}

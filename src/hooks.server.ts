@@ -22,6 +22,7 @@ import { materializeDueRules } from '$lib/application/recurring';
 import { checkBudgetAlerts } from '$lib/application/budget-alerts';
 import { materializeBucketAccruals } from '$lib/application/buckets';
 import { sweepExpiredShares } from '$lib/repo/shares';
+import { deleteExpiredSessions } from '$lib/server/auth/session';
 import { systemClock } from '$lib/infra/time/system-clock';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
 import { serverDeps } from '$lib/server/deps';
@@ -201,6 +202,22 @@ export const init: ServerInit = async () => {
 				})
 			);
 		}
+		try {
+			const dropped = await deleteExpiredSessions(getDb());
+			if (dropped > 0) {
+				console.log(
+					JSON.stringify({ level: 'info', msg: 'sweep: sessions expired', count: dropped })
+				);
+			}
+		} catch (e) {
+			console.log(
+				JSON.stringify({
+					level: 'error',
+					msg: 'sweep: session cleanup failed',
+					err: (e as Error).message
+				})
+			);
+		}
 	};
 	await sweep();
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -238,6 +255,16 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const key = `upload:${event.cookies.get('sid') ?? event.getClientAddress()}`;
 		if (!rateLimitOk(key, 30, 3_600_000)) {
 			error(429, 'Too many uploads — try again later');
+		}
+	}
+	// The OS share-target posts full photos here with no app markup involved,
+	// so nothing else damps it. Blob storage is append-only with no GC — a
+	// scripted member could otherwise fill the disk a photo at a time.
+	if (event.request.method === 'POST' && event.url.pathname === '/share') {
+		if (
+			!rateLimitOk(`share:${event.cookies.get('sid') ?? event.getClientAddress()}`, 10, 3_600_000)
+		) {
+			error(429, 'Too many shares — try again later');
 		}
 	}
 

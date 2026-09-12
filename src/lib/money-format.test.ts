@@ -1,5 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { formatMinor, splitCurrencyMinor, tooWideForSymbol } from './money-format';
+import {
+	formatMinor,
+	minorToDecimalInput,
+	splitCurrencyMinor,
+	tooWideForSymbol
+} from './money-format';
+
+describe('minorToDecimalInput', () => {
+	it('produces the dot-decimal form an input expects, not the locale form', () => {
+		expect(minorToDecimalInput(123456n, 'USD')).toBe('1234.56');
+		expect(minorToDecimalInput(0n, 'USD')).toBe('0.00');
+	});
+
+	it('scales to zero-decimal currencies', () => {
+		expect(minorToDecimalInput(1234n, 'JPY')).toBe('1234');
+	});
+
+	it('round-trips through Money.fromDecimal', () => {
+		expect(() => minorToDecimalInput(-1250n, 'USD')).not.toThrow();
+	});
+});
 
 describe('splitCurrencyMinor', () => {
 	it('lifts the symbol out without touching grouping or decimals', () => {

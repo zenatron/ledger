@@ -1,6 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { getDemoContext } from './context';
 import type { WorkspaceContext } from '$lib/ports/context';
+import { parsePurchaseText } from '$lib/domain/intelligence/parse-purchase';
+import { calDateInZone } from '$lib/domain/time/zoned';
+import { addDays } from '$lib/domain/recurrence/rrule';
+import { suggestCategory } from '$lib/application/suggest-category';
+import { nullAssist } from '$lib/infra/llm/null-assist';
 
 import * as ledgerData from '../../routes/w/[workspace]/purchases/data/handlers';
 import * as flag from '../../routes/w/[workspace]/settings/flag/handlers';
@@ -25,6 +30,7 @@ type EndpointHandler = (ctx: WorkspaceContext, event: any) => Promise<Response>;
  */
 const ROUTES: Array<{ path: string; method: string; handler: EndpointHandler }> = [
 	{ path: 'purchases/data', method: 'GET', handler: ledgerData.GET },
+	{ path: 'purchases/parse', method: 'POST', handler: parse },
 	{ path: 'settings/flag', method: 'POST', handler: flag.POST },
 	{ path: 'settings/member-flag', method: 'POST', handler: memberFlag.POST },
 	{ path: 'settings/member-pref', method: 'POST', handler: memberPref.POST }
@@ -39,6 +45,54 @@ const STUBS: Array<{ path: string; reply: () => Response }> = [
 ];
 
 const WORKSPACE_PATH = /^\/w\/([^/]+)\/(.*)$/;
+
+/**
+ * "Describe it, or dictate…" — the server route runs the deterministic parser
+ * plus the merchant-memory suggester, both pure and both backed by the demo's
+ * own database, so the demo answers it in the tab instead of dead-ending on
+ * "Couldn't reach Harmony" for a server it doesn't have. Mirrors
+ * purchases/parse/+server.ts field for field; the one difference is the
+ * assist, which is always null here because the demo ships no model.
+ */
+async function parse(ctx: WorkspaceContext, { request }: { request: Request }): Promise<Response> {
+	const body = await request.json().catch(() => ({}));
+	const text = typeof body?.text === 'string' ? body.text.slice(0, 300) : '';
+	if (!text.trim()) return json({ empty: true });
+
+	const today = calDateInZone(ctx.deps.clock.now(), ctx.workspace.timezone);
+	const parsed = parsePurchaseText(text, today);
+	const pad = (n: number) => String(n).padStart(2, '0');
+	let spentAt: string | null = null;
+	if (parsed.dateOffsetDays < 0) {
+		const d = addDays(today, parsed.dateOffsetDays);
+		spentAt = `${d.y}-${pad(d.m)}-${pad(d.d)}`;
+	}
+
+	const suggestion = await suggestCategory(
+		ctx.db,
+		nullAssist,
+		ctx.workspace.id,
+		{
+			itemName: parsed.itemName,
+			merchantName: parsed.merchantName,
+			amount: parsed.amount,
+			sentence: text
+		},
+		{ memberId: ctx.member.id, now: new Date() }
+	);
+
+	return json({
+		amount: parsed.amount,
+		itemName: parsed.itemName,
+		merchantName: parsed.merchantName,
+		intent: parsed.intent,
+		dateOffsetDays: parsed.dateOffsetDays,
+		dateLabel: parsed.dateLabel,
+		spentAt,
+		categoryId: suggestion.categoryId,
+		categoryName: suggestion.name
+	});
+}
 
 function match(url: URL, method: string) {
 	const hit = WORKSPACE_PATH.exec(url.pathname);

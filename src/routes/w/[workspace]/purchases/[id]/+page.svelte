@@ -4,7 +4,7 @@
 	import { decide } from '$lib/actions/decide';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { formatMinor, tryParseMinor } from '$lib/money-format';
+	import { formatMinor, minorToDecimalInput, tryParseMinor } from '$lib/money-format';
 	import { overdraftBy } from '$lib/domain/bucket/flows';
 	import {
 		Bell,
@@ -164,10 +164,7 @@
 	const finalAmount = $derived(
 		typedFinal?.id === p.id
 			? typedFinal.value
-			: formatMinor(p.approvedAmountMinor ?? p.requestedAmountMinor, p.currency).replace(
-					/[^0-9.]/g,
-					''
-				)
+			: minorToDecimalInput(p.approvedAmountMinor ?? p.requestedAmountMinor, p.currency)
 	);
 	const overdraft = $derived.by(() => {
 		if (!p.bucket) return null;
@@ -261,7 +258,7 @@
 					use:money
 					required
 					inputmode="decimal"
-					value={formatMinor(p.requestedAmountMinor, p.currency).replace(/[^0-9.]/g, '')}
+					value={minorToDecimalInput(p.requestedAmountMinor, p.currency)}
 					class="ledger-input num w-full font-[family-name:var(--font-display)] text-[length:var(--fs-mega)] leading-[0.92] font-bold"
 					style="color: var(--ink)"
 				/>

@@ -30,7 +30,11 @@ describe('analytics seal filter (the subtraction-attack defense)', () => {
 		await ws.addPurchase({ amountMinor: 1000n, state: 'completed', completedAt: IN_MONTH });
 
 		const period = monthPeriod(calDateInZone(NOW, ws.timezone));
-		const ownerScope = { workspaceId: ws.workspaceId, viewerId: ws.ownerMemberId, timezone: ws.timezone };
+		const ownerScope = {
+			workspaceId: ws.workspaceId,
+			viewerId: ws.ownerMemberId,
+			timezone: ws.timezone
+		};
 		const bobScope = { workspaceId: ws.workspaceId, viewerId: bob, timezone: ws.timezone };
 
 		// The owner sees both; Bob sees only the shared one. Critically, Bob's
@@ -66,12 +70,26 @@ describe('analytics refund netting', () => {
 		const ws = await seedWorkspace(h.db);
 		const cat = await ws.addCategory('Groceries');
 
-		await ws.addPurchase({ categoryId: cat, amountMinor: 4000n, state: 'completed', completedAt: IN_MONTH });
+		await ws.addPurchase({
+			categoryId: cat,
+			amountMinor: 4000n,
+			state: 'completed',
+			completedAt: IN_MONTH
+		});
 		// A refund: same shape, negative amount.
-		await ws.addPurchase({ categoryId: cat, amountMinor: -1500n, state: 'completed', completedAt: IN_MONTH });
+		await ws.addPurchase({
+			categoryId: cat,
+			amountMinor: -1500n,
+			state: 'completed',
+			completedAt: IN_MONTH
+		});
 
 		const period = monthPeriod(calDateInZone(NOW, ws.timezone));
-		const scope = { workspaceId: ws.workspaceId, viewerId: ws.ownerMemberId, timezone: ws.timezone };
+		const scope = {
+			workspaceId: ws.workspaceId,
+			viewerId: ws.ownerMemberId,
+			timezone: ws.timezone
+		};
 		expect(await periodTotal(h.db, scope, period, NOW)).toBe(2500n);
 
 		const byCat = await categoryBreakdown(h.db, scope, period, NOW);

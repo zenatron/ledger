@@ -186,31 +186,37 @@ async function evaluateBudgets(
 	const recipients: Recipient[] = [{ userId: ownerMember.userId, memberId: ownerMember.memberId }];
 
 	let alerted = 0;
+	// One grouped pass instead of a SUM per budget line: every line's total
+	// comes out of the same period scan, keyed by category. The null-category
+	// group exists here too, and the overall budget's number is all groups
+	// summed — the period total exactly.
+	const groups = await db
+		.select({
+			categoryId: purchase.categoryId,
+			total: sql<string>`coalesce(sum(${purchase.finalAmountMinor}), 0)`
+		})
+		.from(purchase)
+		.where(
+			and(
+				eq(purchase.workspaceId, ws.id),
+				inArray(purchase.state, ['completed', 'refunded']),
+				gte(purchase.completedAt, from),
+				lt(purchase.completedAt, to),
+				// The owner is the recipient: rows sealed from them stay out of the
+				// totals, or a gift would leak through the alert.
+				visibleTo(ownerMember.memberId, now)
+			)
+		)
+		.groupBy(purchase.categoryId);
+	const totalByCategory = new Map(groups.map((g) => [g.categoryId, BigInt(g.total)]));
+	const overallTotal = groups.reduce((a, g) => a + BigInt(g.total), 0n);
+
 	for (const b of budgets) {
 		const key = b.categoryId ?? OVERALL_KEY;
 		if (onlyKeys && !onlyKeys.has(key)) continue;
 
-		const conditions: Parameters<typeof and>[0][] = [
-			eq(purchase.workspaceId, ws.id),
-			inArray(purchase.state, ['completed', 'refunded']),
-			gte(purchase.completedAt, from),
-			lt(purchase.completedAt, to),
-			// The owner is the recipient: rows sealed from them stay out of the
-			// total, or a gift would leak through the alert.
-			visibleTo(ownerMember.memberId, now)
-		];
-		if (b.categoryId !== null) {
-			conditions.push(eq(purchase.categoryId, b.categoryId));
-		}
-
-		const [row] = await db
-			.select({
-				total: sql<string>`coalesce(sum(${purchase.finalAmountMinor}), 0)`
-			})
-			.from(purchase)
-			.where(and(...conditions));
-
-		const actualMinor = BigInt(row.total);
+		const actualMinor =
+			b.categoryId === null ? overallTotal : (totalByCategory.get(b.categoryId) ?? 0n);
 		const last = logByKey.get(key) ?? null;
 
 		const decision = decideBudgetAlert({

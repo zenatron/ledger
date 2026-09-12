@@ -12,13 +12,14 @@ import {
 	listPushSubscriptions,
 	recordPushFailure
 } from '$lib/repo/notifications';
-import { sendNtfy } from './ntfy';
+import { sendNtfy, type NtfyToken } from './ntfy';
 import { sendWebPush, type WebPushConfig } from './webpush';
 
 export interface CompositeNotifierConfig {
 	origin: string;
 	webPush: WebPushConfig | null;
-	ntfyToken?: string;
+	/** Scoped to its own origin inside sendNtfy — never sent to a user-chosen host. */
+	ntfyToken?: NtfyToken;
 }
 
 /**

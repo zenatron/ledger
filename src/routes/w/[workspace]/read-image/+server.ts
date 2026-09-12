@@ -1,10 +1,10 @@
 import { error, json } from '@sveltejs/kit';
-import { getEnv } from '$lib/server/env';
 import { getLlmAssist } from '$lib/infra/llm';
 import { readDocumentImage, type DocumentKind } from '$lib/application/read-document-image';
 import { toModelImage } from '$lib/infra/images/process';
 import type { ImageInput } from '$lib/ports/llm-assist';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * Read a bill page or a receipt photo with the optional model.
@@ -27,14 +27,6 @@ const ALLOWED = new Set(['image/webp', 'image/jpeg', 'image/png']);
  * right place for a bound whose only job is to refuse the absurd.
  */
 const MAX_BYTES = 10 * 1024 * 1024;
-
-function assertSameOrigin(request: Request): void {
-	const origin = request.headers.get('origin');
-	const allowed = new URL(getEnv().PUBLIC_ORIGIN).origin;
-	if (origin !== allowed && origin !== new URL(request.url).origin) {
-		error(403, 'Cross-origin request rejected');
-	}
-}
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	assertSameOrigin(request);

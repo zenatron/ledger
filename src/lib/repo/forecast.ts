@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gte, lt, sql } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
 import { bucket, income, purchase, recurringRule } from '$lib/db/schema';
 import { monthPeriod, periodBoundsUtc } from '$lib/domain/analytics/period';
@@ -352,7 +352,16 @@ async function budgetRemaining(
 	};
 }
 
-/** Seal-aware, cash-only (bucket-charged excluded) purchase flows for the viewer. */
+/**
+ * Seal-aware, cash-only (bucket-charged excluded) purchase flows for the viewer.
+ *
+ * Two queries, not one aggregate with FILTER clauses: the month's completed
+ * spend is period-bounded and can ride `purchase_workspace_completed_idx`,
+ * while the decided-but-not-spent states are unbounded in time but number a
+ * handful of rows (served by the partial index on open states). One query with
+ * everything in FILTER would scan the workspace's entire history on every
+ * ledger load to reach the same numbers.
+ */
 async function purchaseFlows(
 	db: Db,
 	scope: ForecastScope,
@@ -365,33 +374,56 @@ async function purchaseFlows(
 	reservedMinor: bigint;
 	sleepingMinor: bigint;
 }> {
-	const [row] = await db
+	const scopeFilter = and(
+		eq(purchase.workspaceId, scope.workspaceId),
+		visibleTo(scope.viewerId, now)
+	);
+
+	const [spentRow] = await db
 		.select({
 			// Completed non-bucket spend this month, refunds netting out.
-			spent: sql<string>`coalesce(sum(${purchase.finalAmountMinor}) filter (
-				where ${purchase.state} in ('completed', 'refunded')
-				and ${purchase.completedAt} >= ${from.toISOString()}::timestamptz
-				and ${purchase.completedAt} < ${to.toISOString()}::timestamptz
-				and ${purchase.bucketId} is null
-			), 0)`,
+			spent: sql<string>`coalesce(sum(${purchase.finalAmountMinor}), 0)`
+		})
+		.from(purchase)
+		.where(
+			and(
+				scopeFilter,
+				sql`${purchase.state} in ('completed', 'refunded')`,
+				sql`${purchase.bucketId} is null`,
+				gte(purchase.completedAt, from),
+				lt(purchase.completedAt, to)
+			)
+		);
+
+	const [openRow] = await db
+		.select({
 			// Approved but not yet completed — money greenlit, cash not out yet.
 			committed: sql<string>`coalesce(sum(coalesce(${purchase.approvedAmountMinor}, ${purchase.requestedAmountMinor})) filter (
-				where ${purchase.state} = 'approved' and ${purchase.bucketId} is null
+				where ${purchase.state} = 'approved'
 			), 0)`,
-			reserved: sql<string>`coalesce(sum(${purchase.requestedAmountMinor}) filter (
-				where ${purchase.state} = 'pending_approval' and ${purchase.bucketId} is null
+			// Pending — the amount approving them will actually commit: an overage
+			// bounce-back keeps the smaller requested figure as requested, but
+			// approval completes at the final price, so reserve that one.
+			reserved: sql<string>`coalesce(sum(coalesce(${purchase.finalAmountMinor}, ${purchase.requestedAmountMinor})) filter (
+				where ${purchase.state} = 'pending_approval'
 			), 0)`,
 			sleeping: sql<string>`coalesce(sum(${purchase.requestedAmountMinor}) filter (
-				where ${purchase.state} = 'held' and ${purchase.bucketId} is null
+				where ${purchase.state} = 'held'
 			), 0)`
 		})
 		.from(purchase)
-		.where(and(eq(purchase.workspaceId, scope.workspaceId), visibleTo(scope.viewerId, now)));
+		.where(
+			and(
+				scopeFilter,
+				sql`${purchase.state} in ('approved', 'pending_approval', 'held')`,
+				sql`${purchase.bucketId} is null`
+			)
+		);
 
 	return {
-		cashSpentMinor: BigInt(row?.spent ?? '0'),
-		cashCommittedMinor: BigInt(row?.committed ?? '0'),
-		reservedMinor: BigInt(row?.reserved ?? '0'),
-		sleepingMinor: BigInt(row?.sleeping ?? '0')
+		cashSpentMinor: BigInt(spentRow?.spent ?? '0'),
+		cashCommittedMinor: BigInt(openRow?.committed ?? '0'),
+		reservedMinor: BigInt(openRow?.reserved ?? '0'),
+		sleepingMinor: BigInt(openRow?.sleeping ?? '0')
 	};
 }

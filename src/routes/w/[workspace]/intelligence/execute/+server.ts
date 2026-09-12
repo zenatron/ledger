@@ -1,7 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
-import { getEnv } from '$lib/server/env';
 import { createBucket } from '$lib/repo/buckets';
 import { addIncome } from '$lib/repo/income';
 import { setBudget, schedulableBudgetWeeks } from '$lib/repo/budgets';
@@ -13,16 +12,9 @@ import { calDateInZone, zonedTimeToUtc } from '$lib/domain/time/zoned';
 import { systemClock } from '$lib/infra/time/system-clock';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 const deps = { clock: systemClock, ids: uuidv7 };
-
-function assertSameOrigin(request: Request): void {
-	const origin = request.headers.get('origin');
-	const allowed = new URL(getEnv().PUBLIC_ORIGIN).origin;
-	if (origin !== allowed && origin !== new URL(request.url).origin) {
-		error(403, 'Cross-origin request rejected');
-	}
-}
 
 function stripControlChars(s: string): string {
 	return s
@@ -41,8 +33,8 @@ function safeName(raw: string, maxLen = 120): string | null {
 }
 
 function normalizeDay(d: number): number {
-	if (d === -1) return 28;
-	return Math.min(Math.max(d, 1), 28);
+	if (d === -1) return -1;
+	return Math.min(Math.max(d, 1), 31);
 }
 
 const ProposalSchema = v.variant('intent', [
@@ -136,7 +128,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			});
 			return json({
 				intent: 'create_bucket',
-				answer: `Bucket “${name}” created: ${amount.format()}/mo on day ${day}.`,
+				answer: `Bucket “${name}” created: ${amount.format()}/mo on ${day === -1 ? 'the last day' : `day ${day}`}.`,
 				target: 'buckets'
 			});
 		}

@@ -85,6 +85,7 @@ export interface SeededWorkspace {
 		rrule: string;
 		nextAccrualAt?: Date | null;
 		status?: 'active' | 'paused' | 'archived';
+		goalCapMinor?: bigint | null;
 		/** Who else may charge it. Null (the default) means anyone; [] means only
 		 *  its owner, which is what makes it an allowance pot. */
 		chargeMemberIds?: string[] | null;
@@ -244,6 +245,7 @@ export async function seedWorkspace(
 			rrule,
 			nextAccrualAt,
 			status = 'active',
+			goalCapMinor = null,
 			chargeMemberIds = null
 		}) {
 			const id = uid();
@@ -257,6 +259,7 @@ export async function seedWorkspace(
 				rrule,
 				nextAccrualAt: nextAccrualAt === undefined ? now : nextAccrualAt,
 				status,
+				goalCapMinor,
 				chargeMemberIds,
 				createdAt: now
 			});

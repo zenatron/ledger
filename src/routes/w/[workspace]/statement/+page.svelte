@@ -57,11 +57,12 @@
 
 	function formatDate(d: Date | null): string {
 		if (!d) return '—';
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+		// Device locale, like every other date on the page.
+		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
 
 	function formatCalDate(d: { y: number; m: number; d: number }): string {
-		return new Date(Date.UTC(d.y, d.m - 1, d.d)).toLocaleDateString('en-US', {
+		return new Date(Date.UTC(d.y, d.m - 1, d.d)).toLocaleDateString(undefined, {
 			month: 'short',
 			day: 'numeric'
 		});

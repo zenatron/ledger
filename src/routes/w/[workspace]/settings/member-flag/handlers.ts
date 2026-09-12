@@ -2,6 +2,7 @@ import type { WorkspaceContext } from '$lib/ports/context';
 import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { workspaceMember } from '$lib/db/schema';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * Like /settings/flag but for per-member boolean prefs — things that are a
@@ -9,6 +10,7 @@ import { workspaceMember } from '$lib/db/schema';
  * the workspace flag endpoint, so arbitrary columns can't be reached.
  */
 export async function POST(ctx: WorkspaceContext, { request }: { request: Request }) {
+	assertSameOrigin(request);
 	const body = await request.json().catch(() => null);
 	const flag = body?.flag;
 	const value = body?.value === true;

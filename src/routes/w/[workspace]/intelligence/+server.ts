@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
-import { getEnv } from '$lib/server/env';
 import { bucketFlowsInPeriod } from '$lib/repo/buckets';
 import { Money } from '$lib/domain/money/money';
 import { periodTotal, categoryBreakdown, memberBreakdown } from '$lib/repo/analytics';
@@ -25,6 +24,7 @@ import { getLlmAssist } from '$lib/infra/llm';
 import { briefingField } from '$lib/infra/llm/prompt';
 import type { WorkspaceRow } from '$lib/repo/workspaces';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /** Amounts cross the wire as bigint minor units; JSON.stringify can't do those. */
 function jsonSafe(data: unknown) {
@@ -50,14 +50,6 @@ function timeToPeriod(tp: TimePeriod, now: Date, tz: string, weekStartDay: numbe
 
 // Standalone endpoint: SvelteKit's form-action CSRF check doesn't cover it, and
 // this one both reads workspace data and can create buckets.
-function assertSameOrigin(request: Request): void {
-	const origin = request.headers.get('origin');
-	const allowed = new URL(getEnv().PUBLIC_ORIGIN).origin;
-	if (origin !== allowed && origin !== new URL(request.url).origin) {
-		error(403, 'Cross-origin request rejected');
-	}
-}
-
 /**
  * A compact, factual snapshot of the workspace's money, computed entirely by the
  * deterministic core. It is the *only* ground the LLM is allowed to answer from:
@@ -165,7 +157,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		return jsonSafe({ intent: 'unknown', raw: '' });
 	}
 
-	const parsed = parse(query);
 	const db = getDb();
 	const ws = locals.workspace!;
 	const scope = {
@@ -176,6 +167,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const currency = ws.currency;
 	const now = systemClock.now();
 	const today = calDateInZone(now, scope.timezone);
+	// "This month" and friends resolve on the workspace's wall clock, not the
+	// server's — otherwise a UTC server mis-answers a UTC+13 workspace for the
+	// first 13 hours after a month turns.
+	const parsed = parse(query, now, scope.timezone);
 
 	// The optional model. Absent by default, in which case every path below is
 	// exactly what it would have been with no model at all.

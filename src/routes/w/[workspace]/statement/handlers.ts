@@ -162,7 +162,7 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		prevMonth: `${pm.y}-${pad(pm.m)}`,
 		nextMonth: `${nm.y}-${pad(nm.m)}`,
 		workspace: { name: ws.name, currency: ws.currency, timezone: ws.timezone },
-		generatedAt: now.toLocaleDateString('en-US', {
+		generatedAt: now.toLocaleDateString(undefined, {
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric'

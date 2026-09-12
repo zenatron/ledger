@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import PlanTabs from '$lib/components/PlanTabs.svelte';
 	import { money } from '$lib/actions/money';
-	import { formatMinor, tryParseMinor } from '$lib/money-format';
+	import { formatMinor, minorToDecimalInput, tryParseMinor } from '$lib/money-format';
 	import { overdraftBy } from '$lib/domain/bucket/flows';
 	import { formatPct } from '$lib/format';
 	import { Archive, CircleHelp, Pause, Pencil, Play, Plus, Wallet } from '@lucide/svelte';
@@ -14,21 +14,10 @@
 	import Segmented from '$lib/components/Segmented.svelte';
 	import { describeChargeScope } from '$lib/domain/bucket/scope';
 	import { calDateInZone } from '$lib/domain/time/zoned';
+	import { ACCENTS, accentName } from '$lib/accent';
 
 	let { data, form } = $props();
 	let slug = $derived(page.params.workspace);
-
-	const accents = [
-		'#FF9F0A',
-		'#FF375F',
-		'#30D158',
-		'#0A84FF',
-		'#BF5AF2',
-		'#FF453A',
-		'#40C8E0',
-		'#FFD60A',
-		'#8E8E93'
-	];
 
 	let showNew = $state(false);
 	let createColor = $state<string | null>(null);
@@ -261,13 +250,20 @@
 			class="card space-y-3.5 p-5"
 		>
 			<div class="grid grid-cols-[1fr_auto] gap-3">
-				<input name="name" required placeholder="Travel fund" class="field text-[16px]" />
+				<input
+					name="name"
+					required
+					placeholder="Travel fund"
+					aria-label="Bucket name"
+					class="field text-[16px]"
+				/>
 				<input
 					name="amount"
 					required
 					use:money
 					inputmode="decimal"
 					placeholder="500.00"
+					aria-label="Amount to set aside"
 					class="field w-28 text-[16px] tabular-nums"
 				/>
 			</div>
@@ -284,6 +280,7 @@
 				use:money
 				inputmode="decimal"
 				placeholder="Save up to…"
+				aria-label="Goal, optional cap"
 				class="field text-[16px]"
 			/>
 			<!--
@@ -341,7 +338,7 @@
 				Color
 			</p>
 			<div class="flex gap-2.5">
-				{#each accents as c (c)}
+				{#each ACCENTS as c (c)}
 					<button
 						type="button"
 						onclick={() => (createColor = createColor === c ? null : c)}
@@ -349,7 +346,7 @@
 						style="background: {c}; box-shadow: {createColor === c
 							? `0 0 0 2.5px var(--ink)`
 							: `0 0 0 0px transparent`}"
-						aria-label="Color {c}"
+						aria-label="Color {accentName(c)}"
 					></button>
 				{/each}
 			</div>
@@ -589,13 +586,20 @@
 							>
 								<input type="hidden" name="bucketId" value={b.id} />
 								<div class="grid grid-cols-[1fr_auto] gap-3">
-									<input name="name" required value={b.name} class="field text-[16px]" />
+									<input
+										name="name"
+										required
+										value={b.name}
+										aria-label="Bucket name"
+										class="field text-[16px]"
+									/>
 									<input
 										name="amount"
 										required
 										use:money
 										inputmode="decimal"
-										value={(Number(b.amountMinor) / 100).toFixed(2)}
+										value={minorToDecimalInput(b.amountMinor, b.currency)}
+										aria-label="Amount each month"
 										class="field w-28 text-[16px] tabular-nums"
 									/>
 								</div>
@@ -611,8 +615,11 @@
 									name="goalCap"
 									use:money
 									inputmode="decimal"
-									value={b.goalCapMinor !== null ? (Number(b.goalCapMinor) / 100).toFixed(2) : ''}
+									value={b.goalCapMinor !== null
+										? minorToDecimalInput(b.goalCapMinor, b.currency)
+										: ''}
 									placeholder="Save up to…"
+									aria-label="Goal, optional cap"
 									class="field text-[16px]"
 								/>
 								<div>
@@ -653,7 +660,7 @@
 									Color
 								</p>
 								<div class="flex gap-2.5">
-									{#each accents as c (c)}
+									{#each ACCENTS as c (c)}
 										<button
 											type="button"
 											onclick={() => {
@@ -663,7 +670,7 @@
 											style="background: {c}; box-shadow: {ec === c
 												? `0 0 0 2.5px var(--ink)`
 												: `0 0 0 0px transparent`}"
-											aria-label="Color {c}"
+											aria-label="Color {accentName(c)}"
 										></button>
 									{/each}
 								</div>
@@ -700,6 +707,7 @@
 										bind:value={adjustAmount}
 										inputmode="decimal"
 										placeholder={b.status === 'active' ? '50.00' : '500.00'}
+										aria-label="Amount to move"
 										class="field text-[16px]"
 									/>
 									<select name="type" bind:value={adjustType} class="field text-[16px]">
@@ -707,7 +715,12 @@
 										<option value="adjustment">Add money</option>
 									</select>
 								</div>
-								<input name="note" placeholder="Optional note" class="field text-[16px]" />
+								<input
+									name="note"
+									placeholder="Optional note"
+									aria-label="Optional note"
+									class="field text-[16px]"
+								/>
 								<!-- Said before the modal too: a warning you only meet at the
 								     final tap is a trap, not a warning. -->
 								{#if overdraftConfirm(b)}

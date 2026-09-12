@@ -10,7 +10,7 @@
 	import { calDateInZone } from '$lib/domain/time/zoned';
 	import { money } from '$lib/actions/money';
 	import { dismiss } from '$lib/actions/dismiss';
-	import { formatMinor } from '$lib/money-format';
+	import { formatMinor, minorToDecimalInput } from '$lib/money-format';
 	import {
 		Check,
 		ChevronDown,
@@ -405,12 +405,19 @@
 			class="card space-y-3.5 p-5"
 		>
 			<div class="grid grid-cols-[1fr_auto] gap-3">
-				<input name="itemName" required placeholder="Streaming service" class="field text-[16px]" />
+				<input
+					name="itemName"
+					required
+					placeholder="Streaming service"
+					aria-label="What it is"
+					class="field text-[16px]"
+				/>
 				<input
 					name="amount"
 					required
 					use:money
 					inputmode="decimal"
+					aria-label="Amount"
 					placeholder="9.99"
 					class="field w-28 text-[16px] tabular-nums"
 				/>
@@ -644,6 +651,7 @@
 												name="itemName"
 												required
 												value={r.itemName}
+												aria-label="What it is"
 												class="field text-[16px]"
 											/>
 											<input
@@ -651,7 +659,8 @@
 												required
 												use:money
 												inputmode="decimal"
-												value={(Number(r.amountMinor) / 100).toFixed(2)}
+												value={minorToDecimalInput(r.amountMinor, r.currency)}
+												aria-label="Amount"
 												class="field w-28 text-[16px] tabular-nums"
 											/>
 										</div>
@@ -860,13 +869,20 @@
 							>
 								<input type="hidden" name="ruleId" value={r.id} />
 								<div class="grid grid-cols-[1fr_auto] gap-3">
-									<input name="itemName" required value={r.itemName} class="field text-[16px]" />
+									<input
+										name="itemName"
+										required
+										value={r.itemName}
+										aria-label="What it is"
+										class="field text-[16px]"
+									/>
 									<input
 										name="amount"
 										required
 										use:money
 										inputmode="decimal"
-										value={(Number(r.amountMinor) / 100).toFixed(2)}
+										value={minorToDecimalInput(r.amountMinor, r.currency)}
+										aria-label="Amount"
 										class="field w-28 text-[16px] tabular-nums"
 									/>
 								</div>

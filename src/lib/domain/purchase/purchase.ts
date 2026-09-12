@@ -472,13 +472,17 @@ export function extendHold(
 }
 
 /**
- * Still want it. Wake back to where it was: PENDING_APPROVAL if it has approvers
- * waiting, otherwise APPROVED (an exempt buy that only ever needed *you*). The
- * pending clock restarts so staleness counts from waking, not the first ask.
+ * Still want it. Wake back to where it was: APPROVED if a decision was already
+ * in hand (deciding again would let a different approver relitigate what
+ * someone already signed off), PENDING_APPROVAL if it is still waiting — which
+ * includes an overage bounce-back, whose finalAmount is parked mid-re-approval
+ * even though decidedAt survives from the first round. The pending clock
+ * restarts so staleness counts from waking, not the first ask.
  */
 export function wake(p: Purchase, actorMemberId: string, now: Date): TransitionResult {
 	assertState(p, ['held'], 'wake');
-	if (p.approverMemberIds.length > 0) {
+	const awaitingDecision = p.decidedAt === null || p.finalAmount !== null;
+	if (awaitingDecision) {
 		return {
 			purchase: {
 				...p,

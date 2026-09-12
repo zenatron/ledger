@@ -2,13 +2,15 @@ import type { WorkspaceContext } from '$lib/ports/context';
 import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { workspace } from '$lib/db/schema';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * One tiny JSON endpoint behind every optimistic settings switch. It replaces
  * posting a form action over fetch, which leaned on SvelteKit's internal
  * action-response protocol and tripped up behind a proxy in production. A plain
- * JSON POST is exempt from form-origin CSRF checks and behaves identically in
- * dev and prod, so a flipped switch always lands.
+ * JSON POST behaves identically in dev and prod, so a flipped switch always
+ * lands — and because it is exempt from form-origin CSRF checks, it states its
+ * own same-origin rule.
  *
  * Owner-only, and the flag is whitelisted — this value decides a workspace-wide
  * setting, so only the known boolean columns may be reached.
@@ -16,6 +18,7 @@ import { workspace } from '$lib/db/schema';
 export async function POST(ctx: WorkspaceContext, { request }: { request: Request }) {
 	if (ctx.member.role !== 'owner') error(403, 'Only the owner can change this setting');
 
+	assertSameOrigin(request);
 	const body = await request.json().catch(() => null);
 	const flag = body?.flag;
 	const value = body?.value === true;

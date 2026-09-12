@@ -24,14 +24,24 @@ describe('materializeBucketAccruals — malformed rule must not wedge the sweep'
 	it('pauses the bad bucket and still accrues the good one', async () => {
 		h = await makeTestDb();
 		const ws = await seedWorkspace(h.db);
-		const bad = await ws.addBucket({ name: 'Bad', amountMinor: 5000n, rrule: BAD, nextAccrualAt: past });
-		const good = await ws.addBucket({ name: 'Good', amountMinor: 2000n, rrule: GOOD, nextAccrualAt: past });
+		const bad = await ws.addBucket({
+			name: 'Bad',
+			amountMinor: 5000n,
+			rrule: BAD,
+			nextAccrualAt: past
+		});
+		const good = await ws.addBucket({
+			name: 'Good',
+			amountMinor: 2000n,
+			rrule: GOOD,
+			nextAccrualAt: past
+		});
 
 		// The bug: this used to throw out of the whole function and, worse, leave
 		// the pointer unadvanced so it re-threw every sweep.
-		await expect(
-			materializeBucketAccruals(h.db, { clock, ids: uuidv7 })
-		).resolves.toBeTypeOf('number');
+		await expect(materializeBucketAccruals(h.db, { clock, ids: uuidv7 })).resolves.toBeTypeOf(
+			'number'
+		);
 
 		const [badRow] = await h.db.select().from(bucket).where(eq(bucket.id, bad));
 		const [goodRow] = await h.db.select().from(bucket).where(eq(bucket.id, good));
@@ -69,8 +79,18 @@ describe('materializeDueRules — malformed rule must not wedge the sweep', () =
 	it('pauses the bad rule and still materializes the good one', async () => {
 		h = await makeTestDb();
 		const ws = await seedWorkspace(h.db);
-		const bad = await ws.addRecurring({ itemName: 'Bad', amountMinor: 1000n, rrule: BAD, nextOccurrenceAt: past });
-		const good = await ws.addRecurring({ itemName: 'Good', amountMinor: 3000n, rrule: GOOD, nextOccurrenceAt: past });
+		const bad = await ws.addRecurring({
+			itemName: 'Bad',
+			amountMinor: 1000n,
+			rrule: BAD,
+			nextOccurrenceAt: past
+		});
+		const good = await ws.addRecurring({
+			itemName: 'Good',
+			amountMinor: 3000n,
+			rrule: GOOD,
+			nextOccurrenceAt: past
+		});
 
 		await expect(
 			materializeDueRules(h.db, { clock, ids: uuidv7, notifier: nullNotifier })
@@ -83,5 +103,57 @@ describe('materializeDueRules — malformed rule must not wedge the sweep', () =
 		// The good rule advanced its pointer (it fired at least once).
 		expect(goodRow.nextOccurrenceAt).not.toBeNull();
 		expect(goodRow.nextOccurrenceAt! > past).toBe(true);
+	});
+});
+
+describe('materializeBucketAccruals — goal cap', () => {
+	it('accrues only the room left under the goal, then idles at the cap', async () => {
+		h = await makeTestDb();
+		const ws = await seedWorkspace(h.db);
+		// $20/month into a bucket capped at $25, due right now.
+		const capped = await ws.addBucket({
+			name: 'Capped',
+			amountMinor: 2000n,
+			rrule: GOOD,
+			goalCapMinor: 2500n,
+			nextAccrualAt: past
+		});
+
+		await materializeBucketAccruals(h.db, { clock, ids: uuidv7 });
+
+		// First accrual is partial: the $25 goal leaves $25 of room, so the
+		// full $20 fits — run the pointer forward twice and the second write
+		// is clipped to the remaining $5.
+		const first = await h.db
+			.select()
+			.from(bucketTransaction)
+			.where(eq(bucketTransaction.bucketId, capped));
+		expect(first).toHaveLength(1);
+		expect(first[0].amountMinor).toBe(2000n);
+
+		// Pull the pointer back so the next occurrence is due again.
+		await h.db.update(bucket).set({ nextAccrualAt: past }).where(eq(bucket.id, capped));
+		await materializeBucketAccruals(h.db, { clock, ids: uuidv7 });
+
+		const second = await h.db
+			.select()
+			.from(bucketTransaction)
+			.where(eq(bucketTransaction.bucketId, capped));
+		expect(second).toHaveLength(2);
+		expect(second[1].amountMinor).toBe(500n); // clipped to the room left
+
+		// Now at the goal: a third due occurrence writes nothing but still
+		// advances the pointer (no stuck queue, no re-run).
+		await h.db.update(bucket).set({ nextAccrualAt: past }).where(eq(bucket.id, capped));
+		await materializeBucketAccruals(h.db, { clock, ids: uuidv7 });
+
+		const third = await h.db
+			.select()
+			.from(bucketTransaction)
+			.where(eq(bucketTransaction.bucketId, capped));
+		expect(third).toHaveLength(2); // nothing new
+
+		const [row] = await h.db.select().from(bucket).where(eq(bucket.id, capped));
+		expect(row.nextAccrualAt!.getTime()).toBeGreaterThan(NOW.getTime());
 	});
 });

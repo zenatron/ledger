@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, lte } from 'drizzle-orm';
 import type { Cookies } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import type { Db } from '$lib/db/types';
@@ -13,6 +13,20 @@ const RENEW_BELOW_MS = SESSION_TTL_MS / 2;
 export type { UserRow as SessionUser } from '$lib/repo/users';
 type SessionUser = typeof user.$inferSelect;
 export type SessionRow = typeof session.$inferSelect;
+
+/**
+ * Bulk-delete expired sessions. Runs in the periodic sweep: a row is created
+ * on every login but only ever deleted when its own cookie is re-presented,
+ * so sessions from people who never came back would otherwise sit in the
+ * table forever.
+ */
+export async function deleteExpiredSessions(db: Db, now = new Date()): Promise<number> {
+	const removed = await db
+		.delete(session)
+		.where(lte(session.expiresAt, now))
+		.returning({ id: session.id });
+	return removed.length;
+}
 
 export async function createSession(
 	db: Db,

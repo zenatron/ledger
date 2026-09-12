@@ -231,7 +231,7 @@
 			</span>
 			<div class="flex-1">
 				<p class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
-					Harmony Intelligence
+					Harmony
 					<span
 						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
 						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"

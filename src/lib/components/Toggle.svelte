@@ -68,7 +68,10 @@
 	});
 
 	async function toggle() {
-		if (disabled) return;
+		// One flip in flight at a time: a double-tap fires two POSTs that race,
+		// and the second response can clobber the first's truth. The switch just
+		// ignores the tap while the write is pending.
+		if (disabled || saving) return;
 		const next = !checked;
 		checked = next; // optimistic
 		saving = true;

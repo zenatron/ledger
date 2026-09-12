@@ -25,7 +25,7 @@
 		X
 	} from '@lucide/svelte';
 	import { money } from '$lib/actions/money';
-	import { formatMinor, tryParseMinor } from '$lib/money-format';
+	import { formatMinor, minorToDecimalInput, tryParseMinor } from '$lib/money-format';
 	import { overdraftBy } from '$lib/domain/bucket/flows';
 	import { onDestroy, onMount } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
@@ -334,7 +334,8 @@
 				return;
 			}
 			// Only ever fills a blank. Nothing you typed is overwritten by a guess.
-			if (read.totalMinor && !amount) amount = (Number(read.totalMinor) / 100).toFixed(2);
+			if (read.totalMinor && !amount)
+				amount = minorToDecimalInput(BigInt(read.totalMinor), data.workspace.currency);
 			if (read.vendor && !merchantName) merchantName = read.vendor;
 			if (read.vendor && !itemName) itemName = read.vendor;
 			/*

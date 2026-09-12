@@ -32,6 +32,31 @@ describe('settleUp', () => {
 		expect(s.shares.reduce((a, x) => a + x.owedMinor, 0n)).toBe(0n);
 	});
 
+	it('splits a refund-heavy (negative) period so shares and transfers still balance', () => {
+		// −$101 in refunds, all landed on one card. Truncating toward zero
+		// would leave the shares summing above the total and transfers that
+		// clear nobody; flooring keeps the invariant.
+		const s = settleUp([m('a', 0n, -101n), m('b', 0n, 0n), m('c', 0n, 0n)], 'equal');
+		expect(s.totalSpentMinor).toBe(-101n);
+		expect(s.shares.reduce((a, x) => a + x.fairShareMinor, 0n)).toBe(-101n);
+		expect(s.shares.reduce((a, x) => a + x.owedMinor, 0n)).toBe(0n);
+		// Everyone else received a slice of the refund, so a collects it for
+		// the household and pays each of them their share back.
+		expect(s.transfers).toEqual([
+			{ fromId: 'a', fromName: 'A', toId: 'b', toName: 'B', amountMinor: 34n },
+			{ fromId: 'a', fromName: 'A', toId: 'c', toName: 'C', amountMinor: 34n }
+		]);
+	});
+
+	it('ignores a negative income when income-weighting instead of wrecking the weights', () => {
+		// A negative income must not drag the weight total to zero (RangeError)
+		// or flip the split; it is simply not a weight.
+		const s = settleUp([m('a', 500_00n, 100_00n), m('b', -900_00n, 0n)], 'income');
+		expect(s.basis).toBe('income');
+		expect(s.shares.reduce((a, x) => a + x.fairShareMinor, 0n)).toBe(100_00n);
+		expect(s.shares.find((x) => x.memberId === 'b')?.fairShareMinor).toBe(0n);
+	});
+
 	it('weights shares by income when asked, and the bigger earner carries more', () => {
 		// $300 spent, incomes $4500 and $1500: shares 225 / 75.
 		const s = settleUp([m('alex', 450_00n, 0n), m('sam', 150_00n, 300_00n)], 'income');

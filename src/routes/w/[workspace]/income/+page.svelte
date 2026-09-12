@@ -6,6 +6,7 @@
 	import { ArrowUpRight, ChevronDown, CircleHelp, Pencil, Trash2, Wallet } from '@lucide/svelte';
 	import { slide } from 'svelte/transition';
 	import Money from '$lib/components/Money.svelte';
+	import { minorToDecimalInput } from '$lib/money-format';
 	import IncomeSchedule from '$lib/components/IncomeSchedule.svelte';
 	import { calDateInZone } from '$lib/domain/time/zoned';
 	let { data, form } = $props();
@@ -160,13 +161,20 @@
 			>
 				<input type="hidden" name="incomeId" value={e.id} />
 				<div class="grid grid-cols-[1fr_auto] gap-3">
-					<input name="source" required value={e.source} class="field text-[16px]" />
+					<input
+						name="source"
+						required
+						value={e.source}
+						aria-label="Source"
+						class="field text-[16px]"
+					/>
 					<input
 						name="amount"
 						required
 						use:money
 						inputmode="decimal"
-						value={(Number(e.amountMinor) / 100).toFixed(2)}
+						value={minorToDecimalInput(e.amountMinor, e.currency)}
+						aria-label="Amount"
 						class="field w-28 text-[16px] tabular-nums"
 					/>
 				</div>
@@ -216,13 +224,20 @@
 			class="card space-y-3.5 p-5"
 		>
 			<div class="grid grid-cols-[1fr_auto] gap-3">
-				<input name="source" required placeholder="Salary" class="field text-[16px]" />
+				<input
+					name="source"
+					required
+					placeholder="Salary"
+					aria-label="Source"
+					class="field text-[16px]"
+				/>
 				<input
 					name="amount"
 					required
 					use:money
 					inputmode="decimal"
 					placeholder="3200.00"
+					aria-label="Amount"
 					class="field w-32 text-[16px] tabular-nums"
 				/>
 			</div>

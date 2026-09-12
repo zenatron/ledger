@@ -1734,7 +1734,7 @@ export const TOOLS: McpTool[] = [
 				monthly_amount: { type: 'string', description: 'Amount set aside each month, decimal.' },
 				day_of_month: {
 					type: 'integer',
-					description: 'Day the monthly amount is added, 1–28 (default 1).'
+					description: 'Day the monthly amount is added, 1–31 or -1 for the last day (default 1).'
 				},
 				goal: { type: 'string', description: 'Optional target/cap, decimal.' },
 				personal: {
@@ -1750,7 +1750,8 @@ export const TOOLS: McpTool[] = [
 			try {
 				const tz = ctx.authed.workspace.timezone;
 				const today = calDateInZone(ctx.deps.clock.now(), tz);
-				const day = Math.min(Math.max(Math.trunc(Number(args.day_of_month) || 1), 1), 28);
+				const n = Math.trunc(Number(args.day_of_month) || 1);
+				const day = n === -1 ? -1 : Math.min(Math.max(n, 1), 31);
 				const rrule = monthlyAccrualRule(day, today);
 				const b = await createBucket(ctx.db, ctx.deps, {
 					workspaceId: ctx.authed.workspace.id,
@@ -1804,7 +1805,8 @@ export const TOOLS: McpTool[] = [
 				if (args.day_of_month !== undefined) {
 					// The API speaks day-of-month; the bucket stores an rrule. A day
 					// change reschedules future-only, anchored at today.
-					const day = Math.min(Math.max(Math.trunc(Number(args.day_of_month)), 1), 28);
+					const n = Math.trunc(Number(args.day_of_month));
+					const day = n === -1 ? -1 : Math.min(Math.max(n, 1), 31);
 					const tz = ctx.authed.workspace.timezone;
 					const today = calDateInZone(ctx.deps.clock.now(), tz);
 					changes.rrule = monthlyAccrualRule(day, today);

@@ -1,0 +1,1 @@
+ALTER TABLE "purchase" ADD CONSTRAINT "purchase_seal_paired" CHECK (cardinality("purchase"."sealed_from_member_ids") = 0 or "purchase"."sealed_until" is not null);

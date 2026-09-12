@@ -104,7 +104,7 @@ describe('answerAsk — the model may only prepare', () => {
 
 		expect(out && 'propose' in out && out.propose).toMatchObject({
 			name: 'Holiday fund',
-			dayOfMonth: 28
+			dayOfMonth: 31
 		});
 	});
 

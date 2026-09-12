@@ -426,8 +426,11 @@
 
 	// Svelte JS transitions escape the global reduced-motion clamp in CSS, so
 	// they read the query themselves — the same concession Money.svelte makes.
-	const reduceMotion =
-		typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+	// Live via addEventListener, so flipping the OS setting lands without a reload.
+	const motionQuery =
+		typeof matchMedia !== 'undefined' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+	let reduceMotion = $state(motionQuery?.matches ?? false);
+	motionQuery?.addEventListener('change', (e) => (reduceMotion = e.matches));
 
 	// The months after this one (`runway`, streamed): projected free cash, shown
 	// inside the expanded breakdown. Every figure is a projection; the caption
@@ -736,7 +739,12 @@
 				? 'text-decoration: underline dotted; text-underline-offset: 3px;'
 				: ''}"
 		>
-			{kind === 'add' ? '+' : kind === 'sub' ? '−' : ''}{formatMinor(minor, data.currency)}
+			<!-- A sign belongs to a movement, not to a zero: "−$0.00" reads as a debt of nothing. -->
+			{kind === 'add' && minor !== 0n
+				? '+'
+				: kind === 'sub' && minor !== 0n
+					? '−'
+					: ''}{formatMinor(minor, data.currency)}
 		</span>
 	</div>
 {/snippet}
@@ -1119,7 +1127,7 @@
 					{#if data.members.length > 1}
 						<div>
 							<p class="section-label mb-2">Member</p>
-							<div class="flex flex-wrap gap-2">
+							<div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Filter by member">
 								<button
 									onclick={() => pickMember('')}
 									role="radio"
@@ -1144,7 +1152,7 @@
 					<!-- Category -->
 					<div>
 						<p class="section-label mb-2">Category</p>
-						<div class="flex flex-wrap gap-2">
+						<div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Filter by category">
 							<button
 								onclick={() => pickCategory('')}
 								role="radio"

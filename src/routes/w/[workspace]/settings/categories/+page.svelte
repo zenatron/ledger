@@ -245,6 +245,7 @@
 						maxlength="60"
 						required
 						placeholder="Category name"
+						aria-label="Category name"
 						class="field w-full text-[16px]"
 					/>
 					<input type="hidden" name="icon" value={editIcon} />
@@ -330,6 +331,7 @@
 					maxlength="60"
 					required
 					placeholder="Category name"
+					aria-label="Category name"
 					class="field w-full text-[16px]"
 				/>
 				<input type="hidden" name="icon" value={newIcon} />

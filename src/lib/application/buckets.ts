@@ -11,7 +11,7 @@ import {
 	type CalDate
 } from '$lib/domain/recurrence/rrule';
 import { calDateInZone, zonedTimeToUtc } from '$lib/domain/time/zoned';
-import { addTransaction } from '$lib/repo/buckets';
+import { addTransaction, bucketBalance } from '$lib/repo/buckets';
 
 /** Accruals land at 09:00 workspace-local — the same hour recurring charges materialize. */
 const ACCRUAL_HOUR = 9;
@@ -127,15 +127,31 @@ export async function materializeBucketAccruals(db: Db, deps: Deps): Promise<num
 				if (b.nextAccrualAt > now) return null;
 
 				const occurrenceAt = b.nextAccrualAt;
-				await addTransaction(tx, deps, {
-					bucketId: b.id,
-					amountMinor: b.amountMinor,
-					currency: b.currency,
-					type: 'accrual',
-					at: occurrenceAt
-				});
-
 				const next = nextOccurrence(rec, calDateInZone(occurrenceAt, tz));
+
+				// A goal caps the accrual, matching what the forecast projects
+				// ("only the room left, at most what's due"): writing the full
+				// rule amount would sail past the target the owner set. At or
+				// past the goal the write skips entirely while the pointer still
+				// advances, so saving resumes on its own once a charge frees up
+				// room.
+				let amountMinor = b.amountMinor;
+				if (b.goalCapMinor !== null) {
+					const room = b.goalCapMinor - (await bucketBalance(tx, b.id));
+					if (room <= 0n) amountMinor = 0n;
+					else if (room < amountMinor) amountMinor = room;
+				}
+
+				if (amountMinor > 0n) {
+					await addTransaction(tx, deps, {
+						bucketId: b.id,
+						amountMinor,
+						currency: b.currency,
+						type: 'accrual',
+						at: occurrenceAt
+					});
+				}
+
 				await tx
 					.update(bucket)
 					.set({ nextAccrualAt: zonedTimeToUtc(next, ACCRUAL_HOUR, 0, tz) })

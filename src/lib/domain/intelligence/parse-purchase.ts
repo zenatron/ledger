@@ -90,18 +90,34 @@ const MONTHS: Record<string, number> = {
 };
 
 /**
- * Resolve a calendar date the person named without a year into an offset from
- * today. A purchase is something that already happened, so an unqualified
- * "the 3rd" or "Jan 12" means the most recent one at or before today — never a
- * future date, which would be a different kind of claim entirely.
+ * Resolve a calendar date the person named into an offset from today. A purchase
+ * is something that already happened, so an unqualified "the 3rd" or "Jan 12"
+ * means the most recent one at or before today — never a future date, which
+ * would be a different kind of claim entirely. A date spoken *with* a year is
+ * different: the year pins it, so it resolves to exactly that day, wherever it
+ * sits relative to today (a future one resolves to nothing, not to a guess).
  *
  * Returns null when the date can't exist (the 31st of a 30-day month), rather
  * than clamping. Clamping would silently record a different day than was said.
  */
-function offsetToRecent(today: CalDate, month: number | null, day: number): number | null {
+function offsetToRecent(
+	today: CalDate,
+	month: number | null,
+	day: number,
+	year: number | null
+): number | null {
 	let y = today.y;
 	let m = month ?? today.m;
 	if (day < 1) return null;
+
+	if (year !== null) {
+		// The year pins the day exactly, wherever it sits (a future one resolves
+		// to nothing rather than to a guess). Callers drop implausible years
+		// before this point.
+		if (day > daysInMonth(year, m)) return null;
+		const offset = compareDates({ y: year, m, d: day }, today);
+		return offset > 0 ? null : offset;
+	}
 
 	if (month === null) {
 		// Day-of-month only: this month if it has already passed, else last month.
@@ -160,22 +176,29 @@ function extractDate(
 	if (!today) return { offset: 0, label: null, span: null };
 
 	const months = Object.keys(MONTHS).join('|');
-	// Each entry yields [month|null, day]; a null month means day-of-month only.
-	const absolute: { re: RegExp; parts: (m: RegExpExecArray) => [number | null, number] }[] = [
-		// ISO: 2026-01-12
+	// Each entry yields [month|null, day, year|null]; a null month means
+	// day-of-month only, a null year means "most recent at or before today".
+	const YEAR = `(?:,?\\s+(\\d{4}))?`;
+	const absolute: {
+		re: RegExp;
+		parts: (m: RegExpExecArray) => [number | null, number, number | null];
+	}[] = [
+		// ISO: 2026-01-12 — the year pins the day exactly
 		{
 			re: /\b(\d{4})-(\d{2})-(\d{2})\b/,
-			parts: (m) => [Number(m[2]), Number(m[3])]
+			parts: (m) => [Number(m[2]), Number(m[3]), Number(m[1])]
 		},
-		// "Jan 12", "January 12th"
+		// "Jan 12", "January 12th", "Jan 12, 2024"
 		{
-			re: new RegExp(`\\b(?:on\\s+)?(${months})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`),
-			parts: (m) => [MONTHS[m[1]], Number(m[2])]
+			re: new RegExp(`\\b(?:on\\s+)?(${months})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?${YEAR}\\b`),
+			parts: (m) => [MONTHS[m[1]], Number(m[2]), m[3] ? Number(m[3]) : null]
 		},
-		// "12 Jan", "12th of January"
+		// "12 Jan", "12th of January", "12 Jan 2024"
 		{
-			re: new RegExp(`\\b(?:on\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${months})\\.?\\b`),
-			parts: (m) => [MONTHS[m[2]], Number(m[1])]
+			re: new RegExp(
+				`\\b(?:on\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${months})\\.?${YEAR}\\b`
+			),
+			parts: (m) => [MONTHS[m[2]], Number(m[1]), m[3] ? Number(m[3]) : null]
 		},
 		// Slashes, only where one component can't be a month.
 		{
@@ -183,25 +206,38 @@ function extractDate(
 			parts: (m) => {
 				const a = Number(m[1]);
 				const b = Number(m[2]);
-				if (a > 12 && b <= 12) return [b, a];
-				if (b > 12 && a <= 12) return [a, b];
-				return [null, -1];
+				if (a > 12 && b <= 12) return [b, a, null];
+				if (b > 12 && a <= 12) return [a, b, null];
+				return [null, -1, null];
 			}
 		},
 		// "on the 3rd", "the 21st"
 		{
 			re: /\bthe\s+(\d{1,2})(?:st|nd|rd|th)\b/,
-			parts: (m) => [null, Number(m[1])]
+			parts: (m) => [null, Number(m[1]), null]
 		}
 	];
 
 	for (const p of absolute) {
 		const m = p.re.exec(t);
 		if (!m) continue;
-		const [month, day] = p.parts(m);
-		const offset = offsetToRecent(today, month, day);
+		const [month, day, stated] = p.parts(m);
+		let year = stated;
+		let matched = m[0];
+		if (year !== null && (year < 1970 || year > today.y + 1)) {
+			// Not a plausible year — a stray 4-digit number is likelier an
+			// amount than a date. Drop it from the match, span included, and
+			// read the day unqualified, as it always was.
+			year = null;
+			matched = matched.replace(/,?\s+\d{4}$/, '');
+		}
+		const offset = offsetToRecent(today, month, day, year);
 		if (offset === null) continue;
-		return { offset, label: m[0].replace(/^on\s+/, ''), span: [m.index, m.index + m[0].length] };
+		return {
+			offset,
+			label: matched.replace(/^on\s+/, ''),
+			span: [m.index, m.index + matched.length]
+		};
 	}
 
 	return { offset: 0, label: null, span: null };

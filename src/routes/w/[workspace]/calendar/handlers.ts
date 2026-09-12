@@ -59,7 +59,7 @@ export async function load(ctx: WorkspaceContext, { params, url }: LoadEvent) {
 		month: {
 			y,
 			m,
-			label: new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', {
+			label: new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
 				month: 'long',
 				year: 'numeric',
 				timeZone: 'UTC'

@@ -194,7 +194,7 @@
 			]
 		},
 		{
-			label: 'Harmony Intelligence',
+			label: 'Harmony',
 			sections: [
 				{
 					id: 'safe-to-spend',

@@ -61,18 +61,29 @@ export interface Settlement {
 /**
  * Split `total` across `weights` proportionally, largest-remainder so the
  * parts sum exactly. BigInt-native Money.allocate: incomes as weights run
- * straight past the safe-integer range allocate is bounded by.
+ * straight past the safe-integer range allocate is bounded by. The division
+ * floors toward negative infinity — bigint's native truncation would round
+ * toward zero, and a refund-heavy period (negative total) would then leave
+ * negative leftover the fix-up loop can't spend.
  */
 function allocateByWeights(total: bigint, weights: bigint[]): bigint[] {
 	const weightTotal = weights.reduce((a, b) => a + b, 0n);
-	const shares = weights.map((w) => (total * w) / weightTotal);
-	// Floor division leaves a non-negative remainder when total ≥ 0; the
-	// leftover minor units go to the largest remainders, earliest first.
+	const shares: bigint[] = [];
+	const remainders: { i: number; r: bigint }[] = [];
+	for (let i = 0; i < weights.length; i++) {
+		const raw = total * weights[i];
+		let q = raw / weightTotal;
+		let r = raw % weightTotal;
+		if (r < 0n) {
+			q -= 1n;
+			r += weightTotal;
+		}
+		shares.push(q);
+		remainders.push({ i, r });
+	}
 	let leftover = total - shares.reduce((a, b) => a + b, 0n);
-	const order = weights
-		.map((w, i) => ({ i, r: (total * w) % weightTotal }))
-		.sort((a, b) => (b.r === a.r ? a.i - b.i : b.r > a.r ? 1 : -1));
-	for (const { i } of order) {
+	remainders.sort((a, b) => (b.r === a.r ? a.i - b.i : b.r > a.r ? 1 : -1));
+	for (const { i } of remainders) {
 		if (leftover === 0n) break;
 		shares[i] += 1n;
 		leftover -= 1n;
@@ -121,11 +132,15 @@ export function settleUp(members: SettlementMember[], basis: ShareBasis): Settle
 	}
 
 	// Income-weighting needs income to weight by; without any, the honest
-	// answer is the equal split, not a division by zero.
-	const anyIncome = members.some((m) => m.incomeMinor > 0n);
-	const weights =
-		basis === 'income' && anyIncome ? members.map((m) => m.incomeMinor) : members.map(() => 1n);
-	const effectiveBasis = basis === 'income' && anyIncome ? 'income' : 'equal';
+	// answer is the equal split, not a division by zero. Negative income is
+	// not a weight either — it would drag the total towards zero — so only
+	// positive income counts, and the split falls back to equal when that
+	// leaves nothing to weight by.
+	const incomeWeights = members.map((m) => (m.incomeMinor > 0n ? m.incomeMinor : 0n));
+	const incomeTotal = incomeWeights.reduce((a, b) => a + b, 0n);
+	const useIncome = basis === 'income' && incomeTotal > 0n;
+	const weights = useIncome ? incomeWeights : members.map(() => 1n);
+	const effectiveBasis = useIncome ? 'income' : 'equal';
 
 	const fair = allocateByWeights(totalSpent, weights);
 	const owed = members.map((_, i) => fair[i] - members[i].paidMinor);

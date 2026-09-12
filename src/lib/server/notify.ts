@@ -29,7 +29,12 @@ export function getNotifier(): Notifier {
 		instance = createCompositeNotifier(getDb(), systemClock, {
 			origin: env.PUBLIC_ORIGIN,
 			webPush,
+			// The token belongs to the deployment's own ntfy server (the default
+			// home when none is configured) and never travels to a member's
+			// custom host — see NtfyToken.
 			ntfyToken: env.NTFY_DEFAULT_TOKEN
+				? { value: env.NTFY_DEFAULT_TOKEN, origin: env.NTFY_SERVER_URL ?? 'https://ntfy.sh' }
+				: undefined
 		});
 	}
 	return instance;

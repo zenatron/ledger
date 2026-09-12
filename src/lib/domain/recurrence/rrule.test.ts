@@ -90,6 +90,32 @@ describe('nextOccurrence — monthly', () => {
 		expect(nextOccurrence(rec, d(2028, 1, 31))).toEqual(d(2028, 2, 29));
 	});
 
+	it('no BYMONTHDAY falls back to the start day, 29th-31st included', () => {
+		// The fallback is "same day as DTSTART" — not a pre-clamped 28. A rule
+		// starting on the 31st bills on the 31st (February clamps), which is
+		// what describeRecurrence promises.
+		const on31st = parseRRule('DTSTART=2026-01-31;FREQ=MONTHLY');
+		expect(nextOccurrence(on31st, d(2026, 1, 31))).toEqual(d(2026, 2, 28));
+		expect(nextOccurrence(on31st, d(2026, 2, 28))).toEqual(d(2026, 3, 31));
+		expect(nextOccurrence(on31st, d(2026, 3, 31))).toEqual(d(2026, 4, 30));
+		expect(nextOccurrence(on31st, d(2026, 4, 30))).toEqual(d(2026, 5, 31));
+
+		const on30th = parseRRule('DTSTART=2026-01-30;FREQ=MONTHLY');
+		expect(nextOccurrence(on30th, d(2026, 1, 30))).toEqual(d(2026, 2, 28));
+		expect(nextOccurrence(on30th, d(2026, 2, 28))).toEqual(d(2026, 3, 30));
+
+		const on29th = parseRRule('DTSTART=2026-01-29;FREQ=MONTHLY');
+		expect(nextOccurrence(on29th, d(2026, 1, 29))).toEqual(d(2026, 2, 28));
+		expect(nextOccurrence(on29th, d(2026, 2, 28))).toEqual(d(2026, 3, 29));
+	});
+
+	it('no BYMONTHDAY yearly keeps the start day and month', () => {
+		const rec = parseRRule('DTSTART=2024-02-29;FREQ=YEARLY');
+		expect(nextOccurrence(rec, d(2024, 2, 29))).toEqual(d(2025, 2, 28));
+		expect(nextOccurrence(rec, d(2025, 2, 28))).toEqual(d(2026, 2, 28));
+		expect(nextOccurrence(rec, d(2027, 2, 28))).toEqual(d(2028, 2, 29));
+	});
+
 	it('day 30 lands on the 30th, clamping only where the month is shorter', () => {
 		const rec = parseRRule('DTSTART=2026-01-30;FREQ=MONTHLY;BYMONTHDAY=30');
 		// 31-day months keep the 30th (not the last day) — the whole point.

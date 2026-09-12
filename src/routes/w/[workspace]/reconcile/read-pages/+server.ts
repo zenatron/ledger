@@ -1,9 +1,9 @@
 import { error, json } from '@sveltejs/kit';
-import { getEnv } from '$lib/server/env';
 import { getLlmAssist } from '$lib/infra/llm';
 import { readStatementPage } from '$lib/application/read-statement-image';
 import { toModelImage } from '$lib/infra/images/process';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * Transcribe the pages of a scanned statement.
@@ -27,14 +27,6 @@ import type { RequestHandler } from './$types';
  */
 const MAX_PAGES = 10;
 const MAX_BYTES_PER_PAGE = 10 * 1024 * 1024;
-
-function assertSameOrigin(request: Request): void {
-	const origin = request.headers.get('origin');
-	const allowed = new URL(getEnv().PUBLIC_ORIGIN).origin;
-	if (origin !== allowed && origin !== new URL(request.url).origin) {
-		error(403, 'Cross-origin request rejected');
-	}
-}
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	assertSameOrigin(request);
