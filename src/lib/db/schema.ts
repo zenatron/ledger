@@ -442,7 +442,10 @@ export const purchaseImage = pgTable(
 		width: integer('width').notNull(),
 		height: integer('height').notNull(),
 		byteSize: integer('byte_size').notNull(),
-		position: integer('position').notNull().default(0)
+		position: integer('position').notNull().default(0),
+		// When the photo was attached — the viewer says so alongside the size.
+		// Pre-existing rows take the migration instant; nothing older is recorded.
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [index('purchase_image_purchase_idx').on(t.purchaseId)]
 );

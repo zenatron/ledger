@@ -72,7 +72,8 @@ export async function setPurchaseImage(
 			width: processed.display.width,
 			height: processed.display.height,
 			byteSize: display.byteSize,
-			position: 0
+			position: 0,
+			createdAt: deps.clock.now()
 		});
 	});
 }

@@ -204,7 +204,11 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 			blobId: i.blobId,
 			thumbBlobId: i.thumbBlobId,
 			width: i.width,
-			height: i.height
+			height: i.height,
+			// Caption facts for the viewer: the stored derivative's size and when
+			// the photo was attached.
+			byteSize: i.byteSize,
+			createdAt: i.createdAt
 		})),
 		// Shown under a reversal arrow, and not editable here — it belongs to the
 		// original purchase, which has its own detail page.

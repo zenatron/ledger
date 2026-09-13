@@ -23,6 +23,7 @@
 		X
 	} from '@lucide/svelte';
 	import { formatCoords } from '$lib/domain/location/coords';
+	import { formatBytes } from '$lib/format';
 	import { createPlaceField } from '$lib/domain/location/place-field.svelte';
 	import Money from '$lib/components/Money.svelte';
 	import { money } from '$lib/actions/money';
@@ -188,6 +189,14 @@
 	const displayAmount = $derived(p.finalAmountMinor ?? p.requestedAmountMinor);
 	const isPending = $derived(p.state === 'pending_approval');
 	const img = $derived(data.images[0]);
+	// The viewer's caption: what was stored (the WebP derivative — the original
+	// is discarded on upload), at what dimensions, and when it was attached.
+	const imgMeta = $derived.by(() => {
+		if (!img) return '';
+		const parts = [formatBytes(img.byteSize), `${img.width}×${img.height}`];
+		parts.push(`added ${fmtDate(img.createdAt.toISOString())}`);
+		return parts.join(' · ');
+	});
 
 	const stateLabel: Record<string, string> = {
 		draft: 'Draft',
@@ -465,18 +474,30 @@
 					loading="eager"
 				/>
 			</button>
-			<ImageViewer src="/w/{slug}/blobs/{img.blobId}" alt={p.itemName} bind:open={viewing} />
+			<ImageViewer
+				src="/w/{slug}/blobs/{img.blobId}"
+				alt={p.itemName}
+				meta={imgMeta}
+				bind:open={viewing}
+			/>
 			<!--
 				Photo controls sit on the photo, because they act on it. A purchase
 				carries exactly one, so this replaces rather than appends — the old
 				"Add another photo" stored images that nothing ever displayed.
 			-->
 			{#if data.can.addPhoto}
-				<div class="absolute right-2.5 bottom-2.5 flex gap-2">
+				<!--
+					Frosted paper pills — the map's overlay-control pattern — rather
+					than black translucency, which read as mud on a light photo and
+					vanished on a dark one. Paper with a hairline and the card shadow
+					is the app's own overlay idiom, keeps its contrast on any photo,
+					and the pair shares one height so they sit as one control.
+				-->
+				<div class="absolute right-2.5 bottom-2.5 flex items-stretch gap-2">
 					<form method="POST" action="?/addImage" enctype="multipart/form-data">
 						<label
-							class="press flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold backdrop-blur"
-							style="background: oklch(0 0 0 / 0.55); color: white"
+							class="press flex h-8 cursor-pointer items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold backdrop-blur"
+							style="background: color-mix(in oklab, var(--paper) 86%, transparent); color: var(--ink); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-card)"
 						>
 							<Camera class="h-3.5 w-3.5" /> Replace
 							<input
@@ -495,8 +516,8 @@
 						use:submit={{ confirm: 'Remove this photo?', success: 'Photo removed' }}
 					>
 						<button
-							class="press flex items-center justify-center rounded-full px-2.5 py-1.5 backdrop-blur"
-							style="background: oklch(0 0 0 / 0.55); color: white"
+							class="press flex h-8 w-8 items-center justify-center rounded-full backdrop-blur"
+							style="background: color-mix(in oklab, var(--paper) 86%, transparent); color: var(--deny); box-shadow: inset 0 0 0 1px var(--hairline), var(--shadow-card)"
 							aria-label="Remove photo"
 						>
 							<Trash2 class="h-3.5 w-3.5" />

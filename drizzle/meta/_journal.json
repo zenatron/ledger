@@ -260,6 +260,13 @@
       "when": 1789238263905,
       "tag": "0036_fantastic_the_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789258823498,
+      "tag": "0037_known_bishop",
+      "breakpoints": true
     }
   ]
 }

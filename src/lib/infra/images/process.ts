@@ -28,7 +28,10 @@ export {
 const MAX_INPUT_PIXELS = 40_000_000; // ~40MP
 /** Bounds on the *long* edge, not on width — see `derive`. */
 const DISPLAY_EDGE = 1600;
-const THUMB_EDGE = 400;
+// The thumb renders exactly once, as the ledger row's 40px avatar; 256 leaves
+// 2× headroom over even a 3×-DPR screen while costing about half the bytes of
+// the 400px it replaces. Below this the largest tablets would go soft.
+const THUMB_EDGE = 256;
 const WEBP_QUALITY = 78;
 
 function sniffFormat(data: Uint8Array): 'jpeg' | 'png' | 'webp' | null {
