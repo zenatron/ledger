@@ -491,7 +491,23 @@
 	{:else}
 		{#each groups as g (g.key)}
 			<div class="space-y-2">
-				{#if g.label}<p class="section-label px-1">{g.label}</p>{/if}
+				<!--
+					The group's size beside its name, in the same place the Ended header
+					keeps its count. A tinted chip rather than bare digits: here it sits
+					next to an overline that leads straight into a card, and loose numerals
+					there read as part of the first row.
+				-->
+				{#if g.label}
+					<div class="flex items-center justify-between px-1">
+						<p class="section-label">{g.label}</p>
+						<span
+							class="chip num"
+							style="color: var(--ink-3); background: var(--surface-2)"
+							aria-label="{g.rules.length} {g.rules.length === 1 ? 'charge' : 'charges'}"
+							>{g.rules.length}</span
+						>
+					</div>
+				{/if}
 				<div class="card overflow-hidden">
 					{#each g.rules as r, i (r.id)}
 						<!--
@@ -732,8 +748,11 @@
 			aria-expanded={showPast}
 		>
 			<span class="section-label">Ended</span>
-			<span class="flex items-center gap-1 text-[13px]" style="color: var(--ink-3)">
-				{data.past.length}
+			<span class="flex items-center gap-1.5" style="color: var(--ink-3)">
+				<!-- The same chip the cadence groups carry, so every count on the page reads alike. -->
+				<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+					>{data.past.length}</span
+				>
 				<ChevronDown
 					class="h-4 w-4 transition-transform duration-200 {showPast ? 'rotate-180' : ''}"
 				/>
