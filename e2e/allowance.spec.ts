@@ -12,7 +12,7 @@ import {
  * The allowance, as a household actually uses it.
  *
  * The pieces are unit- and integration-tested already. What only a browser can
- * answer is whether the guided setup in Settings → Members really composes them:
+ * answer is whether the guided setup on the Buckets page really composes them:
  * that the pot appears, that the picker offers it to its owner and hides it from
  * everyone else, and that the two sides of the cap land in different places.
  */
@@ -24,32 +24,31 @@ test('allowance: set one up, spend under the cap, then ask to go over', async ({
 	const bob = await loginAs(browser, 'bob');
 	await joinWorkspace(bob, code, slug);
 
-	// Alice sets Bob up with 40.00 a week.
-	await alice.goto(`/w/${slug}/settings/members`);
+	// Alice sets Bob up with 40.00 a week, under Allowances on the Buckets page.
+	await alice.goto(`/w/${slug}/buckets`);
 	await waitForHydration(alice);
-	const row = alice.locator('[data-member="Bob Test"]');
-	const amount = row.getByLabel('Allowance amount');
+	const amount = alice.getByLabel('Allowance amount');
 	await expect(async () => {
 		if (!(await amount.isVisible())) {
-			await row.getByRole('button', { name: 'Allowance', exact: true }).click();
+			await alice.getByRole('button', { name: '+ Allowance' }).click();
 		}
 		await expect(amount).toBeVisible({ timeout: 1000 });
 	}).toPass({ timeout: 15_000 });
+	await alice.locator('select[name="memberId"]').selectOption({ label: 'Bob Test' });
 	await amount.fill('40.00');
 	// The schedule is the app's ordinary recurrence picker, so a weekly allowance
 	// is chosen the same way a weekly bucket accrual is.
-	await row.getByRole('radio', { name: 'Weekly', exact: true }).click();
-	await row.getByRole('button', { name: 'Set up allowance' }).click();
-	// Filtered rather than matched whole: the line is built from three expressions
-	// with markup whitespace between them. Generous timeout because this is the
-	// first POST to a route the dev server compiles on hit.
-	const allowanceLine = row.locator('p').filter({ hasText: 'week' });
-	await expect(allowanceLine).toContainText('$40.00', { timeout: 30_000 });
-
-	// The pot exists and belongs to Bob. It has not accrued yet, so Alice puts
-	// the first week in by hand, the way a parent front-loading one would.
-	await alice.goto(`/w/${slug}/buckets`);
+	await alice.getByRole('radio', { name: 'Weekly', exact: true }).click();
+	await alice.getByRole('button', { name: 'Set up allowance' }).click();
+	// Generous timeout because this is the first POST to a route the dev server
+	// compiles on hit. The form closes itself on success.
+	await expect(amount).toBeHidden({ timeout: 30_000 });
 	await expect(alice.getByText("Bob Test's allowance")).toBeVisible();
+
+	// The Members page reads it back, for reference.
+	await alice.goto(`/w/${slug}/settings/members`);
+	const allowanceLine = alice.locator('[data-member="Bob Test"] p').filter({ hasText: 'week' });
+	await expect(allowanceLine).toContainText('$40.00', { timeout: 30_000 });
 	// Alice can see it and cannot spend from it: it never reaches her picker.
 	await alice.goto(`/w/${slug}/purchases/new`);
 	await expect(

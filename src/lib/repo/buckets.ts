@@ -24,6 +24,8 @@ export interface CreateBucketCmd {
 	/** Who else may charge it. Absent or null means anyone, which is how every
 	 *  bucket behaved before the column. */
 	chargeMemberIds?: string[] | null;
+	/** Set only by the allowance setup; see `bucket.isAllowance`. */
+	isAllowance?: boolean;
 }
 
 export interface BucketListItem {
@@ -67,6 +69,7 @@ export async function createBucket(
 		icon: cmd.icon ?? null,
 		nextAccrualAt: cmd.nextAccrualAt ?? null,
 		chargeMemberIds: cmd.chargeMemberIds ?? null,
+		isAllowance: cmd.isAllowance ?? false,
 		status: 'active',
 		createdAt: now
 	});

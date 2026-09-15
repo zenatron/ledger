@@ -284,11 +284,11 @@
 					icon: 'piggy',
 					title: 'Allowances',
 					body: [
-						'An allowance gives someone a set amount to spend on their own, topped up on a schedule. Open **Settings → Members**, tap **Allowance** beside their name, and choose the amount and how often.',
+						'An allowance gives someone a set amount to spend on their own, topped up on a schedule. Owners set one up on the **Buckets** page: tap **+ Allowance** under **Allowances**, pick who it is for, and choose the amount and how often.',
 						'They get a bucket only they can charge to. Purchases that fit inside it go through without asking. A purchase bigger than the balance comes to an owner as a normal approval request, so the amount is a real limit.',
 						'Everything else they buy needs approval as usual, and they cannot charge to anyone else\u2019s bucket.',
-						'Run the same action again to change the amount or the schedule. The balance stays where it is.',
-						'The pieces are ordinary settings, so you can build the same thing by hand: a bucket set to **Only me** on the Buckets page, plus **Buckets they can charge** set to **Only their own** under **Policy**.'
+						'Tap **Change allowance** on it to change the amount or the schedule. The balance stays where it is.',
+						'A bucket someone makes for themselves and sets to **Only me**, like a savings pot, is not an allowance. It stays with their other buckets.'
 					]
 				}
 			]

@@ -130,28 +130,38 @@ export async function setThresholdPolicy(
 	approverNames: string[]
 ): Promise<void> {
 	await page.goto(`/w/${slug}/settings/members`);
-	// data-member wraps a member's row and its policy editor together.
+	// A member's row opens their sheet; the policy editor lives inside it.
 	const row = page.locator(`[data-member="${memberName}"]`);
-	// The toggle needs hydration; a too-early click is a no-op. Retry until
-	// the form actually opens.
+	const sheet = page.getByRole('dialog', { name: memberName });
+	// Both taps need hydration; a too-early click is a no-op. Retry until the
+	// form actually opens.
 	//
-	// Addressed by control name rather than by label: the policy editor now has
-	// two selects, and their labels ("When X spends", "Bucket charges") both
-	// mention approval in their options, so `getByLabel('Approval')` matched
-	// both and failed on strict mode instead of on anything real.
-	const approvalSelect = row.locator('select[name="mode"]');
+	// Addressed by control name rather than by label: the policy editor has two
+	// selects, and their labels ("When X spends", "Bucket charges") both mention
+	// approval in their options, so `getByLabel('Approval')` matched both and
+	// failed on strict mode instead of on anything real.
+	const approvalSelect = sheet.locator('select[name="mode"]');
 	await expect(async () => {
+		if (!(await sheet.isVisible())) {
+			await row.getByRole('button', { name: `Manage ${memberName}` }).click();
+		}
+		// Proven open before reaching into it. An early tap opens nothing, and a
+		// click on a button inside a sheet that never opened would wait out the
+		// whole retry budget instead of letting the loop tap the row again.
+		await expect(sheet).toBeVisible({ timeout: 1000 });
 		if (!(await approvalSelect.isVisible())) {
-			await row.getByRole('button', { name: 'Policy', exact: true }).click();
+			await sheet.getByRole('button', { name: /Approval policy/ }).click({ timeout: 1000 });
 		}
 		await expect(approvalSelect).toBeVisible({ timeout: 1000 });
 	}).toPass({ timeout: 15_000 });
 	await approvalSelect.selectOption('threshold');
-	await row.getByLabel(/Threshold/).fill(threshold);
+	await sheet.getByLabel(/Threshold/).fill(threshold);
 	for (const name of approverNames) {
-		await row.getByRole('checkbox', { name }).check();
+		await sheet.getByRole('checkbox', { name }).check();
 	}
-	await row.getByRole('button', { name: 'Save policy' }).click();
+	await sheet.getByRole('button', { name: 'Save policy' }).click();
+	// The editor folds away on success, and the row behind the sheet reads the new rule.
+	await expect(approvalSelect).toBeHidden({ timeout: 30_000 });
 	await expect(row.getByText(/Approval above/)).toBeVisible();
 }
 

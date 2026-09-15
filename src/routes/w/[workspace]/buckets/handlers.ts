@@ -1,7 +1,14 @@
 import type { WorkspaceContext } from '$lib/ports/context';
 import type { ActionEvent, LoadEvent } from '$lib/ports/handlers';
 import { fail } from '@sveltejs/kit';
+import { and, eq } from 'drizzle-orm';
 import * as v from 'valibot';
+import { workspaceMember } from '$lib/db/schema';
+import {
+	InvalidPolicyError,
+	validatePolicy,
+	type ApprovalPolicy
+} from '$lib/domain/approval/policy';
 import { calDateInZone } from '$lib/domain/time/zoned';
 import { Money, InvalidMoneyError } from '$lib/domain/money/money';
 import {
@@ -45,6 +52,8 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 	return {
 		currency: ws.currency,
 		viewerMemberId: ctx.member.id,
+		// Allowances are set up and changed by owners; everyone sees them.
+		isOwner: ctx.member.role === 'owner',
 		members: people,
 		// What's actually in the visible buckets right now (active + paused;
 		// archived already excluded by listBuckets).
@@ -69,6 +78,7 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 				icon: r.bucket.icon,
 				status: r.bucket.status,
 				chargeMemberIds: r.bucket.chargeMemberIds,
+				isAllowance: r.bucket.isAllowance,
 				memberId: r.bucket.memberId,
 				balanceMinor: r.balanceMinor,
 				memberName: r.memberName,
@@ -109,6 +119,21 @@ const CreateSchema = v.object({
 	startDate: v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a start date')),
 	goalCap: v.optional(v.string()),
 	color: v.optional(v.string())
+});
+
+const AllowanceSchema = v.object({
+	memberId: v.pipe(v.string(), v.nonEmpty('Who is it for?')),
+	amount: v.pipe(v.string(), v.trim(), v.minLength(1, 'How much?')),
+	freq: v.picklist(['daily', 'weekly', 'monthly', 'yearly']),
+	interval: v.pipe(
+		v.string(),
+		v.transform(Number),
+		v.integer('Interval must be a whole number'),
+		v.minValue(1),
+		v.maxValue(52)
+	),
+	monthDay: v.optional(v.string()),
+	startDate: v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a start date'))
 });
 
 /**
@@ -179,6 +204,116 @@ export const actions = {
 			}
 			throw e;
 		}
+		return { ok: true };
+	},
+
+	/**
+	 * Set someone up with an allowance, or change the one they have.
+	 *
+	 * An allowance is three settings that already exist, pointed at each other: a
+	 * bucket only its owner can charge, an accrual rule that tops it up, and a
+	 * policy that says "ask me for anything, except what comes out of your own
+	 * bucket, unless it would overdraw it." This action assembles them, and marks
+	 * the bucket as an allowance so it is listed and managed as one — rather than
+	 * every "only me" bucket being taken for one.
+	 *
+	 * Moved here from the Members page: it is a bucket first, and the Buckets
+	 * page is where people go looking for it.
+	 */
+	allowance: async (ctx: WorkspaceContext, { request }: ActionEvent) => {
+		if (ctx.member.role !== 'owner') {
+			return fail(403, { error: 'Only an owner can set up an allowance' });
+		}
+		const form = await request.formData();
+		const parsed = v.safeParse(AllowanceSchema, Object.fromEntries(form));
+		if (!parsed.success) return fail(400, { error: parsed.issues[0].message });
+		const f = parsed.output;
+
+		const ws = ctx.workspace;
+		const members = await listMembers(ctx.db, ws.id);
+		const target = members.find((m) => m.member.id === f.memberId);
+		if (!target) return fail(400, { error: 'Unknown member' });
+		if (target.member.status !== 'active') {
+			return fail(400, { error: 'Restore this member before setting up an allowance' });
+		}
+
+		// Someone other than them has to be able to say yes, or every over-budget
+		// purchase would stall with nobody able to decide it. Owners are who can.
+		const approverIds = members
+			.filter(
+				(m) =>
+					m.member.status === 'active' && m.member.role === 'owner' && m.member.id !== f.memberId
+			)
+			.map((m) => m.member.id);
+		if (approverIds.length === 0) {
+			return fail(400, {
+				error: 'Somebody else has to be able to approve. Make another member an owner first.'
+			});
+		}
+
+		let amount: Money;
+		let rrule: string;
+		try {
+			amount = Money.fromDecimal(f.amount, ws.currency);
+			rrule = formatRRule(
+				recurrenceFromFields({ ...f, weekDays: form.getAll('weekDay').map(Number) })
+			);
+		} catch (e) {
+			if (e instanceof InvalidMoneyError || e instanceof RecurrenceError) {
+				return fail(400, { error: e.message });
+			}
+			throw e;
+		}
+		if (!amount.isPositive) return fail(400, { error: 'Amount must be positive' });
+
+		const today = calDateInZone(ctx.deps.clock.now(), ws.timezone);
+		const nextAccrualAt = firstAccrualAt(rrule, today, ws.timezone);
+
+		// Their existing allowance, if they have one. Changing it keeps one pot
+		// with one history, so raising an allowance doesn't strand the balance.
+		const buckets = await listBuckets(ctx.db, ws.id);
+		const existing = buckets.find((b) => b.bucket.memberId === f.memberId && b.bucket.isAllowance);
+		if (existing) {
+			await updateBucket(ctx.db, { workspaceId: ws.id, memberId: f.memberId }, existing.bucket.id, {
+				amountMinor: amount.minor,
+				rrule,
+				nextAccrualAt,
+				chargeMemberIds: []
+			});
+		} else {
+			await createBucket(ctx.db, ctx.deps, {
+				workspaceId: ws.id,
+				memberId: f.memberId,
+				name: `${target.user.displayName}'s allowance`,
+				amountMinor: amount.minor,
+				currency: ws.currency,
+				rrule,
+				// Empty list, so only they can spend from it.
+				chargeMemberIds: [],
+				isAllowance: true,
+				nextAccrualAt
+			});
+		}
+
+		const existingPolicy = target.member.approvalPolicy as ApprovalPolicy;
+		const policy: ApprovalPolicy = {
+			mode: 'always',
+			category_overrides: existingPolicy.category_overrides,
+			bucket_charges: 'skip',
+			own_buckets_only: true,
+			routing: { mode: 'any_of', approver_ids: approverIds }
+		};
+		const activeIds = members.filter((m) => m.member.status === 'active').map((m) => m.member.id);
+		try {
+			validatePolicy(policy, activeIds);
+		} catch (e) {
+			if (e instanceof InvalidPolicyError) return fail(400, { error: e.message });
+			throw e;
+		}
+		await ctx.db
+			.update(workspaceMember)
+			.set({ approvalPolicy: policy })
+			.where(and(eq(workspaceMember.id, f.memberId), eq(workspaceMember.workspaceId, ws.id)));
 		return { ok: true };
 	},
 

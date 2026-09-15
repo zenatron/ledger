@@ -15,7 +15,13 @@ import { purchase, recurringRule } from '$lib/db/schema';
 import type { Db } from '$lib/db/types';
 import { submitPurchase } from '$lib/application/purchases';
 import { createRule, RecurringRuleError } from '$lib/application/recurring';
-import { addTransaction, bucketBalance, updateBucket } from '$lib/repo/buckets';
+import {
+	addTransaction,
+	bucketBalance,
+	createBucket,
+	listBuckets,
+	updateBucket
+} from '$lib/repo/buckets';
 import { PurchaseStateError } from '$lib/domain/purchase/purchase';
 import { Money } from '$lib/domain/money/money';
 import type { ApprovalPolicy } from '$lib/domain/approval/policy';
@@ -207,6 +213,42 @@ describe('an allowance', () => {
 });
 
 describe('a personal bucket', () => {
+	it('is not an allowance unless one was set up', async () => {
+		/*
+		 * A member's own "only me" savings bucket and an allowance an owner set
+		 * up for them hold the same charge list. The Members page used to infer
+		 * the allowance from that list, so a Savings pot showed up as one. Only
+		 * the flag says which is which.
+		 */
+		h = await makeTestDb();
+		const db = h.db;
+		const ws = await seedWorkspace(db);
+		const savings = await createBucket(db, deps, {
+			workspaceId: ws.workspaceId,
+			memberId: ws.ownerMemberId,
+			name: 'Savings',
+			amountMinor: 10_000n,
+			currency: ws.currency,
+			rrule: MONTHLY,
+			chargeMemberIds: []
+		});
+		const allowance = await createBucket(db, deps, {
+			workspaceId: ws.workspaceId,
+			memberId: ws.ownerMemberId,
+			name: "Owner's allowance",
+			amountMinor: 2000n,
+			currency: ws.currency,
+			rrule: MONTHLY,
+			chargeMemberIds: [],
+			isAllowance: true
+		});
+
+		const listed = await listBuckets(db, ws.workspaceId);
+		const flag = (id: string) => listed.find((b) => b.bucket.id === id)?.bucket.isAllowance;
+		expect(flag(savings.id)).toBe(false);
+		expect(flag(allowance.id)).toBe(true);
+	});
+
 	it('is closed to other members, however unrestricted they are', async () => {
 		const { db, ws, potId } = await seedAllowance();
 		// The owner has the default do-anything policy, and still cannot spend

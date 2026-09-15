@@ -593,11 +593,21 @@ export const bucket = pgTable(
 		 *
 		 * Null means anyone in the workspace, which is what every bucket was
 		 * before this column and stays the default. A list names exactly who else
-		 * may charge it; an empty list is therefore "only me", which is what makes
-		 * a bucket an allowance. The owner is always implied and never stored, so
-		 * the two can't drift apart.
+		 * may charge it; an empty list is therefore "only me". The owner is always
+		 * implied and never stored, so the two can't drift apart.
 		 */
 		chargeMemberIds: uuid('charge_member_ids').array(),
+		/**
+		 * An allowance: a pot an owner set up for someone, as opposed to a bucket
+		 * someone made for themselves.
+		 *
+		 * Stored rather than inferred. It used to be read off `chargeMemberIds`
+		 * being "only me", but a personal savings bucket is exactly that too, so
+		 * a member's own Savings showed up as their allowance. Nothing about how a
+		 * charge is checked reads this; it decides where the bucket is listed and
+		 * who manages it.
+		 */
+		isAllowance: boolean('is_allowance').notNull().default(false),
 		/** Accrual schedule — the same RRULE subset recurring purchases use. */
 		rrule: text('rrule').notNull(),
 		/** When the next accrual is due. Null = not scheduled yet; the sweep

@@ -1,30 +1,55 @@
 <script lang="ts">
 	import { submit } from '$lib/actions/submit';
+	import { dismiss } from '$lib/actions/dismiss';
+	import { modal } from '$lib/actions/modal';
 	import { page } from '$app/state';
-	import { ChevronLeft, Mail, Users } from '@lucide/svelte';
+	import { fade, scale } from 'svelte/transition';
+	import {
+		ChevronLeft,
+		ChevronRight,
+		Mail,
+		PiggyBank,
+		ShieldCheck,
+		Users,
+		X
+	} from '@lucide/svelte';
 	import { money } from '$lib/actions/money';
-	import RecurrencePicker from '$lib/components/RecurrencePicker.svelte';
-	import { calDateInZone } from '$lib/domain/time/zoned';
 	import { formatMinor } from '$lib/money-format';
 
 	let { data, form } = $props();
 	let slug = $derived(page.params.workspace);
-	let editingPolicy: string | null = $state(null);
-	let editingAllowance: string | null = $state(null);
-	// Today in the *workspace* timezone: toISOString() is UTC, so late in the
-	// evening in the Americas a new allowance would anchor to tomorrow.
-	const today = $derived.by(() => {
-		const t = calDateInZone(new Date(), data.workspace.timezone);
-		return `${t.y}-${String(t.m).padStart(2, '0')}-${String(t.d).padStart(2, '0')}`;
-	});
 	let copied: string | null = $state(null);
 
 	const roleLabel: Record<string, string> = { owner: 'Owner', member: 'Member' };
 
+	type Member = (typeof data.members)[number];
+
 	/*
-	 * Draft state for the open editor. The policy form's fields depend on each
-	 * other — a threshold only means something in "Above amount", approvers only
-	 * when approval can be required — so the selects have to be bound rather than
+	 * The member sheet. A row used to carry Allowance, Policy and Disable as three
+	 * text buttons, which crowded a phone row and put a destructive action one
+	 * mis-tap from an everyday one. Now the row is the button, and everything you
+	 * can do about a person sits in one sheet, with Disable at the bottom, apart.
+	 *
+	 * Held by id, not by object, so the sheet reads the freshly loaded member
+	 * after a save instead of the one it was opened with.
+	 */
+	let sheetId: string | null = $state(null);
+	const sheet = $derived(sheetId ? (data.members.find((m) => m.id === sheetId) ?? null) : null);
+	let editingPolicy = $state(false);
+
+	function openSheet(m: Member) {
+		sheetId = m.id;
+		editingPolicy = false;
+	}
+	function closeSheet() {
+		sheetId = null;
+		editingPolicy = false;
+	}
+
+	/*
+	 * Draft state for the policy editor. The fields depend on each other — a
+	 * threshold only means something in "Above amount", approvers only when
+	 * approval can be required — so the selects have to be bound rather than
 	 * uncontrolled, or the form can't hide what doesn't apply.
 	 */
 	let mode = $state('none');
@@ -34,27 +59,12 @@
 	let bucketScope = $state('any');
 	let threshold = $state('');
 
-	/* The allowance form's own draft, separate from the policy editor's: the two
-	   open independently and one must not overwrite the other's fields. The
-	   schedule fields are the ones RecurrencePicker binds and the server already
-	   parses, so an allowance can be set to anything a bucket can. */
-	let allowanceAmount = $state('');
-	let allowanceFreq = $state('weekly');
-	let allowanceInterval = $state(1);
-	let allowanceWeekDays = $state<number[]>([]);
-	let allowanceMonthDay = $state('1');
-	let allowanceStart = $state('');
-
 	const activeMembers = $derived(data.members.filter((m) => m.status === 'active'));
 	/** Approvers only matter when something can actually need approving. */
 	const canRequireApproval = $derived(mode !== 'none' || bucketCharges === 'require');
 
-	function openPolicy(m: (typeof data.members)[number]) {
-		if (editingPolicy === m.id) {
-			editingPolicy = null;
-			return;
-		}
-		editingPolicy = m.id;
+	function openPolicy(m: Member) {
+		editingPolicy = true;
 		mode = m.policy.mode;
 		routingMode = m.policy.routing.mode;
 		approvers = [...m.policy.routing.approver_ids];
@@ -62,22 +72,6 @@
 		bucketScope = m.policy.own_buckets_only ? 'own' : 'any';
 		threshold =
 			m.policy.threshold_minor !== undefined ? (m.policy.threshold_minor / 100).toFixed(2) : '';
-	}
-
-	function openAllowance(m: (typeof data.members)[number]) {
-		if (editingAllowance === m.id) {
-			editingAllowance = null;
-			return;
-		}
-		editingAllowance = m.id;
-		allowanceAmount = m.allowance ? (Number(m.allowance.amountMinor) / 100).toFixed(2) : '';
-		allowanceFreq = m.allowance?.freq ?? 'weekly';
-		allowanceInterval = m.allowance?.interval ?? 1;
-		allowanceWeekDays = [...(m.allowance?.weekDays ?? [])];
-		allowanceMonthDay = m.allowance?.monthDay ?? '1';
-		// A new allowance starts today; an existing one keeps its own anchor, or
-		// re-saving would quietly move a weekly rule onto a different weekday.
-		allowanceStart = m.allowance?.startDate || today;
 	}
 
 	const nameOf = (id: string) => data.members.find((m) => m.id === id)?.displayName ?? 'someone';
@@ -91,7 +85,7 @@
 	 * which is also how you notice you meant the opposite.
 	 */
 	const preview = $derived.by(() => {
-		const who = editingPolicy ? nameOf(editingPolicy) : 'They';
+		const who = sheet ? sheet.displayName : 'They';
 		const lines: string[] = [];
 
 		if (mode === 'none') lines.push(`${who} can spend freely.`);
@@ -197,6 +191,43 @@
 	}
 </script>
 
+<!-- What a row says about a person, whether or not it opens anything. -->
+{#snippet memberSummary(m: Member)}
+	{@const disabled = m.status === 'disabled'}
+	<div class="min-w-0 flex-1 text-left" style={disabled ? 'opacity: 0.55' : ''}>
+		<p class="flex flex-wrap items-center gap-x-2 text-[16px]" style="color: var(--ink)">
+			{m.displayName}
+			<span
+				class="rounded-[var(--r-full)] px-2 py-0.5 text-[12px] font-medium"
+				style="background: {m.role === 'owner'
+					? 'color-mix(in oklab, var(--ws-accent) 14%, transparent)'
+					: 'var(--surface-2)'}; color: {m.role === 'owner' ? 'var(--accent-ink)' : 'var(--ink-3)'}"
+			>
+				{roleLabel[m.role]}
+			</span>
+			{#if m.status !== 'active'}
+				<span class="text-[13px]" style="color: var(--ink-3)">· {m.status}</span>
+			{/if}
+		</p>
+		{#if disabled}
+			<!-- A disabled member has no access, so their approval rules say
+			     nothing about what can happen. Showing them would read as if
+			     they were still in force. -->
+			<p class="text-[13px]" style="color: var(--ink-3)">No access to this workspace</p>
+		{:else}
+			<p class="text-[13px]" style="color: var(--ink-3)">{policySummary(m.policy)}</p>
+			{#if m.allowance}
+				<!-- accent-ink, not --ws-accent: this is words. -->
+				<p class="mt-0.5 text-[12px]" style="color: var(--accent-ink)">
+					Allowance {formatMinor(m.allowance.amountMinor, data.workspace.currency)}
+					{m.allowance.cadence.toLowerCase()} ·
+					{formatMinor(m.allowance.balanceMinor, data.workspace.currency)} left
+				</p>
+			{/if}
+		{/if}
+	</div>
+{/snippet}
+
 <div class="mx-auto max-w-lg space-y-4">
 	<a
 		href="/w/{slug}"
@@ -207,7 +238,7 @@
 	</a>
 	<h1 class="px-1 text-[28px]">Members</h1>
 
-	{#if form?.error}
+	{#if form?.error && !sheet}
 		<p class="card p-3 text-[14px]" style="color: var(--deny)">{form.error}</p>
 	{/if}
 
@@ -220,327 +251,20 @@
 		</h2>
 		<div class="mt-3">
 			{#each data.members as m (m.id)}
-				<!-- One wrapper per member: the row and its policy editor belong
-				     together, and without it nothing scopes to a single member. -->
-				{@const disabled = m.status === 'disabled'}
-				<div data-member={m.displayName}>
-					<div class="hairline flex items-center justify-between gap-3 py-3 last:shadow-none">
-						<div class="min-w-0" style={disabled ? 'opacity: 0.55' : ''}>
-							<!-- A div, not a p: the role control is a form, which the browser
-							     would hoist out of a paragraph and break hydration. -->
-							<div
-								class="flex flex-wrap items-center gap-x-2 text-[16px]"
-								style="color: var(--ink)"
-							>
-								{m.displayName}
-								<!--
-									The role label is the control. The row already carries Policy and
-									Disable, and a third text button crowds it on a phone — but the
-									role is displayed here anyway, so making it the affordance costs
-									no width and puts the action where the fact already is.
-								-->
-								{#if data.isOwner && !disabled}
-									<form
-										method="POST"
-										action="?/setMemberRole"
-										use:submit={{
-											success: m.role === 'owner' ? 'Now a member' : 'Now an owner',
-											// Stepping yourself down is the one move you cannot undo
-											// alone — after it you are no longer an owner.
-											confirm:
-												m.id === data.viewerMemberId && m.role === 'owner'
-													? 'Give up owner access? Another owner would have to give it back.'
-													: undefined
-										}}
-									>
-										<input type="hidden" name="memberId" value={m.id} />
-										<button
-											name="owner"
-											value={m.role === 'owner' ? 'false' : 'true'}
-											class="press rounded-[var(--r-full)] px-2 py-0.5 text-[12px] font-medium"
-											style="background: {m.role === 'owner'
-												? 'color-mix(in oklab, var(--ws-accent) 14%, transparent)'
-												: 'var(--surface-2)'}; color: {m.role === 'owner'
-												? 'var(--ws-accent)'
-												: 'var(--ink-3)'}"
-											title={m.role === 'owner' ? 'Step down to member' : 'Make an owner'}
-										>
-											{roleLabel[m.role]}
-										</button>
-									</form>
-								{:else}
-									<span class="text-[13px]" style="color: var(--ink-3)">{roleLabel[m.role]}</span>
-								{/if}
-								{#if m.status !== 'active'}
-									<span class="text-[13px]" style="color: var(--ink-3)">· {m.status}</span>
-								{/if}
-							</div>
-							{#if disabled}
-								<!-- A disabled member has no access, so their approval rules say
-								     nothing about what can happen. Showing them would read as if
-								     they were still in force. -->
-								<p class="text-[13px]" style="color: var(--ink-3)">No access to this workspace</p>
-							{:else}
-								<p class="text-[13px]" style="color: var(--ink-3)">{policySummary(m.policy)}</p>
-								<!-- Dimmer than the line above: bucket charges are the exception
-								     to the rule, so they read as a footnote to it rather than as a
-								     second, competing headline. -->
-								<p
-									class="text-[12px]"
-									style="color: color-mix(in oklab, var(--ink-3) 78%, transparent)"
-								>
-									{bucketSummary(m.policy)}
-								</p>
-								{#if m.allowance}
-									<!-- The pot, in the terms a parent set it in: what goes in, and
-									     what is left of it right now. -->
-									<!-- accent-ink, not --ws-accent: this is words. The raw accent is a
-								     hex the workspace picked and can land under 4.5:1 as text. -->
-									<p class="mt-0.5 text-[12px]" style="color: var(--accent-ink)">
-										{formatMinor(m.allowance.amountMinor, data.workspace.currency)}
-										{m.allowance.cadence.toLowerCase()} ·
-										{formatMinor(m.allowance.balanceMinor, data.workspace.currency)} left
-									</p>
-								{/if}
-							{/if}
-						</div>
-						{#if data.isOwner}
-							<div class="flex shrink-0 items-center gap-3">
-								{#if !disabled}
-									<button
-										onclick={() => openAllowance(m)}
-										class="press text-[13px] font-medium"
-										style="color: var(--ink-3)"
-										>{editingAllowance === m.id ? 'Close' : 'Allowance'}</button
-									>
-									<button
-										onclick={() => openPolicy(m)}
-										class="press text-[13px] font-medium"
-										style="color: var(--accent-ink)"
-										>{editingPolicy === m.id ? 'Done' : 'Policy'}</button
-									>
-								{/if}
-								<!-- Not offered for yourself: the server refuses it, and an
-								     action that can only fail shouldn't be on screen. -->
-								{#if m.id !== data.viewerMemberId}
-									<form
-										method="POST"
-										action="?/setMemberStatus"
-										use:submit={{ success: disabled ? 'Member restored' : 'Member disabled' }}
-									>
-										<input type="hidden" name="memberId" value={m.id} />
-										<button
-											name="disabled"
-											value={disabled ? 'false' : 'true'}
-											class="press text-[13px] font-medium"
-											style="color: {disabled ? 'var(--approve)' : 'var(--ink-3)'}"
-											>{disabled ? 'Restore' : 'Disable'}</button
-										>
-									</form>
-								{/if}
-							</div>
-						{/if}
-					</div>
-
-					{#if editingPolicy === m.id}
-						<form
-							method="POST"
-							action="?/policy"
-							use:submit={{ success: 'Policy updated' }}
-							class="mt-1 mb-2 space-y-3 rounded-[14px] p-4"
-							style="background: var(--surface-2)"
+				<!-- data-member scopes a row to one person for the e2e helpers. -->
+				<div data-member={m.displayName} class="hairline last:shadow-none">
+					{#if data.isOwner}
+						<button
+							onclick={() => openSheet(m)}
+							class="press flex w-full items-center gap-3 py-3"
+							aria-haspopup="dialog"
+							aria-label="Manage {m.displayName}"
 						>
-							<input type="hidden" name="memberId" value={m.id} />
-
-							<!-- The rule in a sentence, updating as you edit. -->
-							<p
-								class="rounded-[10px] px-3 py-2.5 text-[13px] leading-relaxed"
-								style="background: var(--surface); color: var(--ink-2)"
-							>
-								{preview}
-							</p>
-
-							<label class="block">
-								<span class="section-label mb-1.5 block">When {m.displayName} spends</span>
-								<!-- Short options: the section label already says "when X spends",
-								     and the longer phrasing overflowed the select on a phone. -->
-								<select name="mode" bind:value={mode} class="field text-[16px]">
-									<option value="none">Never needs approval</option>
-									<option value="threshold">Needs approval above…</option>
-									<option value="always">Always needs approval</option>
-								</select>
-							</label>
-
-							<!--
-								Only rendered for the mode that reads it: the server ignores the
-								threshold unless mode is 'threshold', so leaving it on screen for
-								"Never" showed an editable field that quietly did nothing.
-							-->
-							{#if mode === 'threshold'}
-								<label class="block">
-									<span class="section-label mb-1.5 block">Above</span>
-									<input
-										name="threshold"
-										aria-label="Threshold"
-										bind:value={threshold}
-										use:money
-										inputmode="decimal"
-										placeholder="50.00"
-										class="field text-[16px] tabular-nums"
-									/>
-								</label>
-							{/if}
-
-							<label class="block">
-								<span class="section-label mb-1.5 block">Bucket charges</span>
-								<select name="bucketCharges" bind:value={bucketCharges} class="field text-[16px]">
-									<option value="inherit"
-										>Follow the workspace ({data.workspaceSkipsBucketCharges
-											? 'skip approval'
-											: 'needs approval'})</option
-									>
-									<option value="skip">Never need approval</option>
-									<option value="require">Always need approval</option>
-								</select>
-							</label>
-
-							<!--
-								The cap half of an allowance. "Only their own" does two things at
-								once, which is why it is one control: it stops them charging
-								anyone else's bucket, and it takes the exemption above away for a
-								charge bigger than the bucket holds.
-							-->
-							<label class="block">
-								<span class="section-label mb-1.5 block">Buckets they can charge</span>
-								<select name="bucketScope" bind:value={bucketScope} class="field text-[16px]">
-									<option value="any">Any bucket</option>
-									<option value="own">Only their own</option>
-								</select>
-							</label>
-
-							{#if canRequireApproval}
-								<label class="block">
-									<span class="section-label mb-1.5 block">Who decides</span>
-									<select
-										name="routingMode"
-										value={routingMode}
-										onchange={(e) => onRoutingChange(e.currentTarget.value)}
-										class="field text-[16px]"
-									>
-										<option value="any_of">Any of these people</option>
-										<option value="specific">One specific person</option>
-									</select>
-								</label>
-
-								<div class="flex flex-wrap gap-x-4 gap-y-2">
-									{#each activeMembers as a (a.id)}
-										<label class="flex items-center gap-1.5 text-[15px]" style="color: var(--ink)">
-											<input
-												type={routingMode === 'specific' ? 'radio' : 'checkbox'}
-												name="approverIds"
-												value={a.id}
-												checked={approvers.includes(a.id)}
-												onchange={() => toggleApprover(a.id)}
-											/>
-											{a.displayName}
-										</label>
-									{/each}
-								</div>
-								{#if approvers.length === 0}
-									<p class="text-[13px]" style="color: var(--pending)">
-										Pick at least one person who can decide.
-									</p>
-								{/if}
-							{:else}
-								<!-- Kept in the form so clearing approval doesn't silently discard
-								     who used to be named on it. -->
-								{#each approvers as id (id)}
-									<input type="hidden" name="approverIds" value={id} />
-								{/each}
-							{/if}
-
-							<button
-								class="btn btn-accent px-5 py-2.5 text-[15px] disabled:opacity-50"
-								disabled={canRequireApproval && approvers.length === 0}
-							>
-								Save policy
-							</button>
-						</form>
-					{/if}
-
-					<!--
-						The guided setup. Everything in it is expressible through the Policy
-						editor and the Buckets page, and assembling it by hand there is four
-						screens plus knowing which three settings to reach for. This is that
-						assembly, named for what people actually call it.
-					-->
-					{#if editingAllowance === m.id}
-						<form
-							method="POST"
-							action="?/allowance"
-							use:submit={{
-								success: m.allowance ? 'Allowance updated' : 'Allowance set up',
-								onSuccess: () => (editingAllowance = null)
-							}}
-							class="mt-1 mb-2 space-y-3 rounded-[14px] p-4"
-							style="background: var(--surface-2)"
-						>
-							<input type="hidden" name="memberId" value={m.id} />
-
-							<p
-								class="rounded-[10px] px-3 py-2.5 text-[13px] leading-relaxed"
-								style="background: var(--surface); color: var(--ink-2)"
-							>
-								{m.displayName} gets a bucket only they can spend from, topped up on this schedule. Anything
-								that fits comes straight out of it. Anything bigger comes to you to approve.
-							</p>
-
-							<label class="block">
-								<span class="section-label mb-1.5 block">Amount each time</span>
-								<input
-									name="amount"
-									required
-									bind:value={allowanceAmount}
-									use:money
-									inputmode="decimal"
-									placeholder="20.00"
-									aria-label="Allowance amount"
-									class="field text-[16px] tabular-nums"
-								/>
-							</label>
-
-							<!--
-								The same picker the Buckets and Plan pages use, because an
-								allowance is a bucket accrual and there is no reason it should
-								be schedulable in fewer ways than one.
-							-->
-							<RecurrencePicker
-								bind:freq={allowanceFreq}
-								bind:interval={allowanceInterval}
-								bind:weekDays={allowanceWeekDays}
-								bind:monthDay={allowanceMonthDay}
-								bind:startDate={allowanceStart}
-								noun="top-up"
-							/>
-
-							{#if m.allowance}
-								<p class="text-[13px]" style="color: var(--ink-3)">
-									Saving moves <strong>{m.allowance.name}</strong>. Its balance of
-									{formatMinor(m.allowance.balanceMinor, data.workspace.currency)} stays where it is.
-								</p>
-							{/if}
-
-							<div class="flex gap-2">
-								<button class="btn btn-accent px-5 py-2.5 text-[15px]">
-									{m.allowance ? 'Save allowance' : 'Set up allowance'}
-								</button>
-								<button
-									type="button"
-									onclick={() => (editingAllowance = null)}
-									class="btn btn-ghost px-5 py-2.5 text-[15px]">Cancel</button
-								>
-							</div>
-						</form>
+							{@render memberSummary(m)}
+							<ChevronRight class="h-4 w-4 shrink-0" style="color: var(--ink-3)" />
+						</button>
+					{:else}
+						<div class="flex items-center gap-3 py-3">{@render memberSummary(m)}</div>
 					{/if}
 				</div>
 			{/each}
@@ -587,3 +311,291 @@
 		</div>
 	{/if}
 </div>
+
+{#if sheet && data.isOwner}
+	{@const m = sheet}
+	{@const disabled = m.status === 'disabled'}
+	{@const self = m.id === data.viewerMemberId}
+	<div
+		class="fixed inset-0 z-50"
+		style="background: var(--scrim)"
+		use:dismiss={closeSheet}
+		transition:fade={{ duration: 140 }}
+	></div>
+	<!-- Raised clear of the tab bar, which is fixed over every screen. -->
+	<div
+		class="fixed inset-x-4 z-50 mx-auto max-w-md"
+		style="bottom: calc(env(safe-area-inset-bottom, 0px) + 84px)"
+		role="dialog"
+		aria-modal="true"
+		aria-label={m.displayName}
+		tabindex="-1"
+		use:modal
+		transition:scale={{ start: 0.96, duration: 170 }}
+	>
+		<div
+			class="card-lg overflow-y-auto"
+			style="box-shadow: var(--shadow-float); background: var(--surface); max-height: calc(100dvh - env(safe-area-inset-bottom, 0px) - 84px - 96px)"
+		>
+			<div class="flex items-start justify-between gap-3 px-5 pt-4 pb-1">
+				<div class="min-w-0">
+					<h2
+						class="truncate font-[family-name:var(--font-display)] text-[22px]"
+						style="color: var(--ink)"
+					>
+						{m.displayName}
+					</h2>
+					<p class="text-[13px]" style="color: var(--ink-3)">
+						{roleLabel[m.role]}{disabled ? ' · no access' : ` · ${policySummary(m.policy)}`}
+					</p>
+				</div>
+				<button
+					onclick={closeSheet}
+					class="press -mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-full"
+					style="color: var(--ink-3)"
+					aria-label="Close"><X class="h-4 w-4" /></button
+				>
+			</div>
+
+			{#if form?.error}
+				<p class="mx-5 mt-2 text-[13px]" style="color: var(--deny)">{form.error}</p>
+			{/if}
+
+			<div class="px-5 pb-2">
+				{#if !disabled}
+					<!-- Role: the one line that says what they are, and the way to change it. -->
+					<form
+						method="POST"
+						action="?/setMemberRole"
+						use:submit={{
+							success: m.role === 'owner' ? 'Now a member' : 'Now an owner',
+							// Stepping yourself down is the one move you cannot undo alone.
+							confirm:
+								self && m.role === 'owner'
+									? 'Give up owner access? Another owner would have to give it back.'
+									: undefined
+						}}
+						class="hairline flex items-center justify-between gap-3 py-3"
+					>
+						<input type="hidden" name="memberId" value={m.id} />
+						<span class="min-w-0">
+							<span class="block text-[15px]" style="color: var(--ink)">Owner access</span>
+							<span class="block text-[12px]" style="color: var(--ink-3)">
+								{m.role === 'owner'
+									? 'Can change settings, members and policies'
+									: 'Can use the workspace, not manage it'}
+							</span>
+						</span>
+						<button
+							name="owner"
+							value={m.role === 'owner' ? 'false' : 'true'}
+							class="btn btn-ghost shrink-0 px-3.5 py-1.5 text-[13px]"
+						>
+							{m.role === 'owner' ? 'Make member' : 'Make owner'}
+						</button>
+					</form>
+
+					<!-- Approval policy: summarized, then edited in place. -->
+					<div class="hairline py-3">
+						<button
+							onclick={() => (editingPolicy ? (editingPolicy = false) : openPolicy(m))}
+							class="press flex w-full items-center gap-3 text-left"
+							aria-expanded={editingPolicy}
+						>
+							<ShieldCheck class="h-4 w-4 shrink-0" style="color: var(--ws-accent)" />
+							<span class="min-w-0 flex-1">
+								<span class="block text-[15px]" style="color: var(--ink)">Approval policy</span>
+								<span class="block text-[12px]" style="color: var(--ink-3)">
+									{policySummary(m.policy)} · {bucketSummary(m.policy)}
+								</span>
+							</span>
+							<ChevronRight
+								class="h-4 w-4 shrink-0 transition-transform duration-200 {editingPolicy
+									? 'rotate-90'
+									: ''}"
+								style="color: var(--ink-3)"
+							/>
+						</button>
+
+						{#if editingPolicy}
+							<form
+								method="POST"
+								action="?/policy"
+								use:submit={{ success: 'Policy updated', onSuccess: () => (editingPolicy = false) }}
+								class="mt-3 space-y-3 rounded-[14px] p-4"
+								style="background: var(--surface-2)"
+							>
+								<input type="hidden" name="memberId" value={m.id} />
+
+								<!-- The rule in a sentence, updating as you edit. -->
+								<p
+									class="rounded-[10px] px-3 py-2.5 text-[13px] leading-relaxed"
+									style="background: var(--surface); color: var(--ink-2)"
+								>
+									{preview}
+								</p>
+
+								<label class="block">
+									<span class="section-label mb-1.5 block">When {m.displayName} spends</span>
+									<select name="mode" bind:value={mode} class="field text-[16px]">
+										<option value="none">Never needs approval</option>
+										<option value="threshold">Needs approval above…</option>
+										<option value="always">Always needs approval</option>
+									</select>
+								</label>
+
+								<!-- Only for the mode that reads it: the server ignores the
+								     threshold otherwise, so leaving it on screen showed an
+								     editable field that quietly did nothing. -->
+								{#if mode === 'threshold'}
+									<label class="block">
+										<span class="section-label mb-1.5 block">Above</span>
+										<input
+											name="threshold"
+											aria-label="Threshold"
+											bind:value={threshold}
+											use:money
+											inputmode="decimal"
+											placeholder="50.00"
+											class="field text-[16px] tabular-nums"
+										/>
+									</label>
+								{/if}
+
+								<label class="block">
+									<span class="section-label mb-1.5 block">Bucket charges</span>
+									<select name="bucketCharges" bind:value={bucketCharges} class="field text-[16px]">
+										<option value="inherit"
+											>Follow the workspace ({data.workspaceSkipsBucketCharges
+												? 'skip approval'
+												: 'needs approval'})</option
+										>
+										<option value="skip">Never need approval</option>
+										<option value="require">Always need approval</option>
+									</select>
+								</label>
+
+								<!-- "Only their own" stops them charging anyone else's bucket,
+								     and takes the exemption above away for a charge bigger than
+								     the bucket holds. -->
+								<label class="block">
+									<span class="section-label mb-1.5 block">Buckets they can charge</span>
+									<select name="bucketScope" bind:value={bucketScope} class="field text-[16px]">
+										<option value="any">Any bucket</option>
+										<option value="own">Only their own</option>
+									</select>
+								</label>
+
+								{#if canRequireApproval}
+									<label class="block">
+										<span class="section-label mb-1.5 block">Who decides</span>
+										<select
+											name="routingMode"
+											value={routingMode}
+											onchange={(e) => onRoutingChange(e.currentTarget.value)}
+											class="field text-[16px]"
+										>
+											<option value="any_of">Any of these people</option>
+											<option value="specific">One specific person</option>
+										</select>
+									</label>
+
+									<div class="flex flex-wrap gap-x-4 gap-y-2">
+										{#each activeMembers as a (a.id)}
+											<label
+												class="flex items-center gap-1.5 text-[15px]"
+												style="color: var(--ink)"
+											>
+												<input
+													type={routingMode === 'specific' ? 'radio' : 'checkbox'}
+													name="approverIds"
+													value={a.id}
+													checked={approvers.includes(a.id)}
+													onchange={() => toggleApprover(a.id)}
+												/>
+												{a.displayName}
+											</label>
+										{/each}
+									</div>
+									{#if approvers.length === 0}
+										<p class="text-[13px]" style="color: var(--pending)">
+											Pick at least one person who can decide.
+										</p>
+									{/if}
+								{:else}
+									<!-- Kept in the form so clearing approval doesn't silently
+									     discard who used to be named on it. -->
+									{#each approvers as id (id)}
+										<input type="hidden" name="approverIds" value={id} />
+									{/each}
+								{/if}
+
+								<button
+									class="btn btn-accent w-full py-2.5 text-[15px] disabled:opacity-50"
+									disabled={canRequireApproval && approvers.length === 0}
+								>
+									Save policy
+								</button>
+							</form>
+						{/if}
+					</div>
+
+					<!-- Allowance: read here, managed where buckets are. -->
+					<a
+						href="/w/{slug}/buckets"
+						class="press hairline flex items-center gap-3 py-3"
+						onclick={closeSheet}
+					>
+						<PiggyBank class="h-4 w-4 shrink-0" style="color: var(--ws-accent)" />
+						<span class="min-w-0 flex-1">
+							<span class="block text-[15px]" style="color: var(--ink)">Allowance</span>
+							<span class="block text-[12px]" style="color: var(--ink-3)">
+								{#if m.allowance}
+									{formatMinor(m.allowance.amountMinor, data.workspace.currency)}
+									{m.allowance.cadence.toLowerCase()} ·
+									{formatMinor(m.allowance.balanceMinor, data.workspace.currency)} left
+								{:else}
+									None. Set one up on Buckets
+								{/if}
+							</span>
+						</span>
+						<ChevronRight class="h-4 w-4 shrink-0" style="color: var(--ink-3)" />
+					</a>
+				{/if}
+
+				<!--
+					Apart from everything above, and last: the one action here that takes
+					something away. Not offered for yourself — the server refuses it, and
+					an action that can only fail shouldn't be on screen.
+				-->
+				{#if !self}
+					<form
+						method="POST"
+						action="?/setMemberStatus"
+						use:submit={{
+							success: disabled ? 'Member restored' : 'Member disabled',
+							confirm: disabled
+								? undefined
+								: `Disable ${m.displayName}? They lose access, but their history stays.`
+						}}
+						class="pt-3 pb-2"
+					>
+						<input type="hidden" name="memberId" value={m.id} />
+						<button
+							name="disabled"
+							value={disabled ? 'false' : 'true'}
+							class="press w-full rounded-[12px] py-2.5 text-[15px] font-medium"
+							style="background: color-mix(in oklab, {disabled
+								? 'var(--approve)'
+								: 'var(--deny)'} 10%, transparent); color: {disabled
+								? 'var(--approve)'
+								: 'var(--deny)'}"
+						>
+							{disabled ? `Restore ${m.displayName}` : `Disable ${m.displayName}`}
+						</button>
+					</form>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
