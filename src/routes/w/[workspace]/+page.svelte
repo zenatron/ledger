@@ -494,7 +494,7 @@
 	     two lines keep their own tighter gap. -->
 	<div class="pt-2 text-center">
 		<p class="text-[12px]" style="color: var(--ink-3)">Ledger v{data.version}</p>
-		<p class="mt-2 text-[12px]" style="color: var(--ink-4)">
+		<p class="mt-2 text-[12px]" style="color: var(--ink-3)">
 			Made with ❤️ by <a
 				href="https://github.com/zenatron"
 				target="_blank"

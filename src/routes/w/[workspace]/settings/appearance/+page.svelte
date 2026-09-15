@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
-	import { ChevronLeft, Monitor, Moon, Palette, Sun } from '@lucide/svelte';
+	import { ChevronLeft, Circle, Contrast, Monitor, Moon, Palette, Sun } from '@lucide/svelte';
 	import Segmented from '$lib/components/Segmented.svelte';
 	import AccentPicker from '$lib/components/AccentPicker.svelte';
-	import { theme, setTheme, type ThemePref } from '$lib/theme.svelte';
+	import {
+		contrast,
+		setContrast,
+		setTheme,
+		theme,
+		type ContrastPref,
+		type ThemePref
+	} from '$lib/theme.svelte';
 	import { accentFor } from '$lib/accent';
 
 	/**
@@ -63,6 +70,36 @@
 			value={theme.pref}
 			onselect={(v) => setTheme(v as ThemePref)}
 			ariaLabel="Theme"
+		/>
+	</section>
+
+	<!--
+		Contrast sits with the theme because it is the same kind of choice: how
+		this device reads the page, stored on it, and following the OS until told
+		otherwise. More keeps the paper and the layout. It darkens the ink,
+		strengthens the rules and deepens the status colours, like the same
+		statement printed with a fresher ribbon.
+	-->
+	<section class="card p-5">
+		<h2
+			class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
+			style="color: var(--ink)"
+		>
+			<Contrast class="h-4 w-4" style="color: var(--ws-accent)" /> Contrast
+		</h2>
+		<p class="mt-1 mb-3.5 text-[13px]" style="color: var(--ink-3)">
+			More makes text darker, dividers firmer and status colors deeper. Follows your device's
+			Increase Contrast setting by default. Saved on this device.
+		</p>
+		<Segmented
+			options={[
+				{ value: 'system', label: 'System', icon: Monitor },
+				{ value: 'standard', label: 'Standard', icon: Circle },
+				{ value: 'more', label: 'More', icon: Contrast }
+			]}
+			value={contrast.pref}
+			onselect={(v) => setContrast(v as ContrastPref)}
+			ariaLabel="Contrast"
 		/>
 	</section>
 

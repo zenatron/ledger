@@ -55,3 +55,45 @@ if (browser) {
 		if (theme.pref === 'system') apply('system');
 	});
 }
+
+/*
+ * Contrast — the same per-device shape as the theme, stored as `contrast`.
+ *
+ * Unlike the theme it is resolved in script, not CSS: `data-contrast="more"`
+ * is present exactly when the tokens should deepen, whether the reader chose
+ * More or left it on System with the OS asking. That keeps the stylesheet to
+ * one override block. The cost is a listener for the OS setting, below.
+ */
+export type ContrastPref = 'system' | 'standard' | 'more';
+
+const CONTRAST_KEY = 'contrast';
+const MORE_QUERY = '(prefers-contrast: more)';
+
+function readContrast(): ContrastPref {
+	if (!browser) return 'system';
+	const v = localStorage.getItem(CONTRAST_KEY);
+	return v === 'standard' || v === 'more' ? v : 'system';
+}
+
+export const contrast = $state<{ pref: ContrastPref }>({ pref: readContrast() });
+
+function applyContrast(pref: ContrastPref): void {
+	if (!browser) return;
+	const more = pref === 'more' || (pref === 'system' && matchMedia(MORE_QUERY).matches);
+	if (more) document.documentElement.setAttribute('data-contrast', 'more');
+	else document.documentElement.removeAttribute('data-contrast');
+}
+
+export function setContrast(pref: ContrastPref): void {
+	contrast.pref = pref;
+	if (!browser) return;
+	if (pref === 'system') localStorage.removeItem(CONTRAST_KEY);
+	else localStorage.setItem(CONTRAST_KEY, pref);
+	applyContrast(pref);
+}
+
+if (browser) {
+	matchMedia(MORE_QUERY).addEventListener('change', () => {
+		if (contrast.pref === 'system') applyContrast('system');
+	});
+}

@@ -113,7 +113,7 @@
 
 	<div class="mt-5 grid grid-cols-7 gap-1 px-0.5">
 		{#each WEEKDAYS as w, i (i)}
-			<div class="pb-1 text-center text-[11px] font-semibold" style="color: var(--ink-4)">{w}</div>
+			<div class="pb-1 text-center text-[11px] font-semibold" style="color: var(--ink-3)">{w}</div>
 		{/each}
 
 		<!-- Blank cells so the 1st lands on its real weekday. -->
@@ -143,7 +143,7 @@
 			>
 				<span
 					class="num text-[12px] {isToday ? 'font-bold' : ''}"
-					style="color: {isToday ? 'var(--ws-accent)' : busy ? 'var(--ink-2)' : 'var(--ink-4)'}"
+					style="color: {isToday ? 'var(--ws-accent)' : busy ? 'var(--ink-2)' : 'var(--ink-3)'}"
 					>{d.day}</span
 				>
 				{#if d.outMinor > 0n}

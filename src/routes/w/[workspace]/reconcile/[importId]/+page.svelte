@@ -257,7 +257,7 @@
 										{s.itemName}{s.merchantName ? ` · ${s.merchantName}` : ''}
 									</span>
 									{#if s.completedAt}
-										<span class="num mt-0.5 block text-[12px]" style="color: var(--ink-4)">
+										<span class="num mt-0.5 block text-[12px]" style="color: var(--ink-3)">
 											{fmtDay(s.completedAt)}
 										</span>
 									{/if}

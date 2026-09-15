@@ -1009,7 +1009,7 @@
 						<span class="flex min-w-0 items-baseline gap-2">
 							<MapPin class="h-3.5 w-3.5 shrink-0 self-center" style="color: var(--ink-4)" />
 							<span class="truncate text-[15px]" style="color: var(--ink)">{pl.label}</span>
-							<span class="num shrink-0 text-[12px]" style="color: var(--ink-4)">
+							<span class="num shrink-0 text-[12px]" style="color: var(--ink-3)">
 								{pl.count}
 							</span>
 						</span>

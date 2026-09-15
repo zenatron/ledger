@@ -945,7 +945,7 @@
 								{:else}
 									<!-- Places are off; the only thing left to do with a pin
 								     that predates that is remove it. -->
-									<span class="mr-auto text-[12px]" style="color: var(--ink-4)">
+									<span class="mr-auto text-[12px]" style="color: var(--ink-3)">
 										Places are turned off. You can remove this one.
 									</span>
 								{/if}
@@ -1005,7 +1005,7 @@
 										>
 											{p.place.label ?? formatCoords(p.place)}
 										</span>
-										<span class="num text-[12px] whitespace-nowrap" style="color: var(--ink-4)">
+										<span class="num text-[12px] whitespace-nowrap" style="color: var(--ink-3)">
 											{p.place.source === 'merchant'
 												? 'from the vendor’s usual place'
 												: `${formatCoords(p.place)} · ±110 m`}

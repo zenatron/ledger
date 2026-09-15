@@ -287,7 +287,7 @@
 					</span>
 				</p>
 			{:else}
-				<p class="mt-2 text-[12px] leading-relaxed" style="color: var(--ink-4)">
+				<p class="mt-2 text-[12px] leading-relaxed" style="color: var(--ink-3)">
 					Basemap: {data.tileAttribution}
 				</p>
 			{/if}
@@ -318,7 +318,7 @@
 					that reaches out to another service just for being looked at.
 				-->
 				<div class="mt-2.5 border-t pt-2.5" style="border-color: var(--hairline)">
-					<p class="text-[12px] leading-relaxed" style="color: var(--ink-4)">
+					<p class="text-[12px] leading-relaxed" style="color: var(--ink-3)">
 						Address search: <span class="font-mono">{data.geocoderEndpoint}</span>
 					</p>
 					<!--

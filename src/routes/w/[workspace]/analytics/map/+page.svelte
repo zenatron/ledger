@@ -828,7 +828,7 @@
 				     rather than something behind a tap. -->
 				<span
 					class="pointer-events-none absolute rounded-[var(--r-sm)] px-1.5 py-0.5 text-[10px]"
-					style="right: 6px; bottom: 6px; color: var(--ink-4); background: color-mix(in oklab, var(--paper) 78%, transparent)"
+					style="right: 6px; bottom: 6px; color: var(--ink-3); background: color-mix(in oklab, var(--paper) 78%, transparent)"
 				>
 					{data.tileAttribution}
 				</span>
@@ -887,7 +887,7 @@
 			>
 				{formatMinor(sheet.totalMinor, data.currency)}
 			</p>
-			<p class="num mt-0.5 text-[11px]" style="color: var(--ink-4)">
+			<p class="num mt-0.5 text-[11px]" style="color: var(--ink-3)">
 				{formatCoords({
 					latE3: Math.round(sheet.center.lat * E3),
 					lngE3: Math.round(sheet.center.lng * E3)
