@@ -737,13 +737,23 @@
 						</span>
 					</button>
 				{/each}
-				{#if placeField.searching}
-					<p class="px-3 pb-2 text-[13px]" style="color: var(--ink-3)">Looking…</p>
-				{:else if placeField.error}
-					<p class="px-3 pb-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">
-						{placeField.error}
-					</p>
-				{/if}
+				<!-- Announced, so a screen reader hears the search finish; the candidates
+				     themselves are the buttons that follow the field in tab order. -->
+				<div aria-live="polite">
+					{#if placeField.searching}
+						<p class="px-3 pb-2 text-[13px]" style="color: var(--ink-3)">Looking…</p>
+					{:else if placeField.error}
+						<p class="px-3 pb-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">
+							{placeField.error}
+						</p>
+					{:else if placeField.candidates.length > 0}
+						<!-- ODbL: the candidates are OpenStreetMap data, whoever serves them. -->
+						<p class="px-3 pt-1 pb-2 text-[12px]" style="color: var(--ink-3)">
+							{placeField.candidates.length}
+							{placeField.candidates.length === 1 ? 'place' : 'places'} found · © OpenStreetMap contributors
+						</p>
+					{/if}
+				</div>
 			{/if}
 			<div class="row hairline" style="box-shadow: inset 0 0.5px 0 var(--hairline)">
 				<Shapes class="h-5 w-5" style="color: var(--ink-3)" />

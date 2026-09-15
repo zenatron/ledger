@@ -4,6 +4,7 @@ import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
 import { workspace } from '$lib/db/schema';
 import { getGeocoder } from '$lib/infra/geocode';
+import { isPublicNominatim } from '$lib/infra/geocode/public';
 import { getLlmAssist, type AssistConfig } from '$lib/infra/llm';
 import { listModels } from '$lib/infra/llm/model-catalog';
 import { getEnv } from '$lib/server/env';
@@ -58,6 +59,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		tileConfigured: !!env.MAP_TILE_URL,
 		tileAttribution: env.MAP_TILE_ATTRIBUTION,
 		geocoderConfigured: !!env.GEOCODER_URL,
+		// A hosted provider has no import of ours to report the date of.
+		geocoderHosted: isPublicNominatim(env.GEOCODER_URL),
 		// Owner-only: it's an internal address, and it's the first thing that's
 		// wrong when address search silently finds nothing.
 		geocoderEndpoint: locals.member!.role === 'owner' ? (env.GEOCODER_URL ?? null) : null,

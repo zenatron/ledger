@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getGeocoder } from './index';
 import { nominatimGeocoder } from './nominatim-geocoder';
+import { isPublicNominatim } from './public';
 
 /** Typed so `mock.calls` carries the fetch arguments the assertions read. */
 const OK = (rows: unknown) =>
@@ -16,6 +17,18 @@ const SF_ROW = { lat: '37.7749', lon: '-122.4194', display_name: 'Ferry Building
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	vi.useRealTimers();
+});
+
+describe('isPublicNominatim', () => {
+	it('knows the public instance by host, and nothing else', () => {
+		expect(isPublicNominatim('https://nominatim.openstreetmap.org')).toBe(true);
+		expect(isPublicNominatim('https://nominatim.openstreetmap.org/')).toBe(true);
+		expect(isPublicNominatim('http://geocoder:8080')).toBe(false);
+		expect(isPublicNominatim('https://nominatim.openstreetmap.org.evil.example')).toBe(false);
+		expect(isPublicNominatim('')).toBe(false);
+		expect(isPublicNominatim(undefined)).toBe(false);
+	});
 });
 
 describe('getGeocoder', () => {
@@ -37,7 +50,14 @@ describe('getGeocoder', () => {
 	it('builds a real adapter from a complete config', () => {
 		const g = getGeocoder({ endpoint: 'https://nominatim.example' });
 		expect(g.available).toBe(true);
-		expect(g.describe()).toEqual({ kind: 'nominatim', endpoint: 'https://nominatim.example' });
+		expect(g.describe()).toEqual({
+			kind: 'nominatim',
+			endpoint: 'https://nominatim.example',
+			hosted: false
+		});
+		expect(getGeocoder({ endpoint: 'https://nominatim.openstreetmap.org' }).describe().hosted).toBe(
+			true
+		);
 	});
 
 	it('returns the same adapter for the same config', () => {
@@ -82,13 +102,65 @@ describe('nominatimGeocoder', () => {
 		// The consequence of getting this wrong is the deployment's IP being
 		// banned, which outlives the request that caused it — so the adapter
 		// enforces it rather than trusting the caller's debounce.
+		vi.useFakeTimers();
 		const spy = OK([SF_ROW]);
 		vi.stubGlobal('fetch', spy);
 		const g = make();
 		await g.search('Ferry Building');
-		await g.search('Union Square');
-		await g.search('Golden Gate Park');
+		const second = g.search('Union Square');
+		await vi.advanceTimersByTimeAsync(999);
 		expect(spy).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
+		await second;
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+
+	it('queues a search that arrives inside the interval, rather than answering it with nothing', async () => {
+		// Dropping it reached the form as "Nothing found" for an address that exists.
+		vi.useFakeTimers();
+		vi.stubGlobal('fetch', OK([SF_ROW]));
+		const g = make();
+		await g.search('Ferry Building');
+		const second = g.search('Union Square');
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(await second).toHaveLength(1);
+	});
+
+	it('gives up on a queue deeper than one search, and sends no burst', async () => {
+		vi.useFakeTimers();
+		const spy = OK([SF_ROW]);
+		vi.stubGlobal('fetch', spy);
+		const g = make();
+		await g.search('Ferry Building');
+		const second = g.search('Union Square');
+		expect(await g.search('Golden Gate Park')).toEqual([]);
+		await vi.advanceTimersByTimeAsync(1000);
+		await second;
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+
+	it('answers a repeated question from the cache, ignoring case and spacing', async () => {
+		const spy = OK([SF_ROW]);
+		vi.stubGlobal('fetch', spy);
+		const g = make();
+		const first = await g.search('Ferry Building');
+		// Straight after: were this not cached, the gate would make it wait.
+		expect(await g.search('  ferry   BUILDING ')).toEqual(first);
+		expect(spy).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not cache a failure', async () => {
+		vi.useFakeTimers();
+		const g = make();
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('', { status: 503 }))
+		);
+		expect(await g.search('Ferry Building')).toEqual([]);
+		vi.stubGlobal('fetch', OK([SF_ROW]));
+		const retry = g.search('Ferry Building');
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(await retry).toHaveLength(1);
 	});
 
 	it('treats every failure as no answer, and never throws', async () => {
@@ -253,6 +325,29 @@ describe('checkHealth', () => {
 		const health = await make().checkHealth('Ferry Building');
 		expect(health.probe?.found).toBe(1);
 		expect(health.probe?.first).toBe('Ferry Building, San Francisco');
+	});
+
+	it('talks to a hosted provider without mentioning imports or extracts', async () => {
+		const hosted = nominatimGeocoder({
+			endpoint: 'https://nominatim.openstreetmap.org',
+			email: 'a@b.c'
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new Error('ECONNREFUSED');
+			})
+		);
+		expect((await hosted.checkHealth()).detail).not.toMatch(/import|extract/);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) =>
+				String(input).includes('/status')
+					? status({ status: 0, message: 'OK' })
+					: status([] as unknown[])
+			)
+		);
+		expect((await hosted.checkHealth('nowhere at all')).detail).not.toMatch(/import|extract/);
 	});
 
 	it('is not silenced by the one-per-second gate the search box lives under', async () => {

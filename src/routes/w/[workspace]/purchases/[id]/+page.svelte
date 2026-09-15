@@ -958,13 +958,24 @@
 								</button>
 								<button class="btn btn-accent text-[13px]" onclick={guardPlaceSubmit}>Save</button>
 							</div>
-							{#if placeField.searching}
-								<p class="mt-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">Looking…</p>
-							{:else if placeField.error}
-								<p class="mt-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">
-									{placeField.error}
-								</p>
-							{/if}
+							<div aria-live="polite">
+								{#if placeField.searching}
+									<p class="mt-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">
+										Looking…
+									</p>
+								{:else if placeField.error}
+									<p class="mt-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">
+										{placeField.error}
+									</p>
+								{:else if placeField.candidates.length > 0}
+									<!-- ODbL: the candidates are OpenStreetMap data, whoever serves them. -->
+									<p class="mt-2 text-[12px]" style="color: var(--ink-3)">
+										{placeField.candidates.length}
+										{placeField.candidates.length === 1 ? 'place' : 'places'} found · © OpenStreetMap
+										contributors
+									</p>
+								{/if}
+							</div>
 							<input type="hidden" name="latE3" value={placeField.place?.latE3 ?? ''} />
 							<input type="hidden" name="lngE3" value={placeField.place?.lngE3 ?? ''} />
 							<input type="hidden" name="placeLabel" value={placeField.place?.label ?? ''} />

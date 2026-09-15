@@ -14,7 +14,7 @@ import type { Geocoder } from './geocoder';
 export function fakeGeocoder(over: Partial<Geocoder> = {}): Geocoder {
 	return {
 		available: true,
-		describe: () => ({ kind: 'nominatim', endpoint: 'http://fake' }),
+		describe: () => ({ kind: 'nominatim', endpoint: 'http://fake', hosted: false }),
 		search: async () => [],
 		checkHealth: async () => ({
 			state: 'ready',

@@ -42,7 +42,10 @@ services:
       # is pinned to the container path its named volume mounts.
       MAP_TILE_URL: ${MAP_TILE_URL:-}
       MAP_TILE_ATTRIBUTION: ${MAP_TILE_ATTRIBUTION:-}
-      GEOCODER_URL: ${GEOCODER_URL:-http://geocoder:8080}
+      # No default. Defaulting to the bundled container meant an unset (or
+      # empty, as .env.example ships it) var pointed the app at a service that
+      # isn't running: search looked configured and found nothing, every time.
+      GEOCODER_URL: ${GEOCODER_URL:-}
       GEOCODER_EMAIL: ${GEOCODER_EMAIL:-}
       BARCODE_LOOKUP_URL: ${BARCODE_LOOKUP_URL:-}
       TILE_CACHE_DIR: /data/tiles
@@ -54,10 +57,11 @@ services:
         condition: service_healthy
 
   # Self-hosted geocoder, opt-in: `docker compose --profile geocoder up -d`,
-  # with GEOCODER_URL=http://geocoder:8080 in .env. This avoids the problem
-  # described in .env.example: the public Nominatim instance's usage policy
-  # forbids autocomplete-style querying and will ban your IP. Not started by
-  # default, and deliberately unreachable from outside the compose network.
+  # with GEOCODER_URL=http://geocoder:8080 in .env. Most deployments don't need
+  # it: the public instance (see .env.example) is fine for occasional searches
+  # and covers the whole planet. Self-host only if address text must never
+  # leave your network. Not started by default, and deliberately unreachable
+  # from outside the compose network.
   #
   # The first start imports the extract at NOMINATIM_IMPORT_URL and can take
   # tens of minutes for a country; plan RAM and disk accordingly (a country is
@@ -66,7 +70,7 @@ services:
   # the index.
   geocoder:
     image: mediagis/nominatim:4.4
-    profiles: ['geocoder', 'full']
+    profiles: ['geocoder']
     restart: unless-stopped
     environment:
       # Defaults to Monaco, Geofabrik's smallest extract, imported in about a

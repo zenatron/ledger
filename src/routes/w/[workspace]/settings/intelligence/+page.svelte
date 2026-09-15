@@ -301,7 +301,10 @@
 						No address search configured. You can still use your device's location and paste map
 						links; those are read offline and never leave this machine. Set <code
 							class="font-mono text-[11px]">GEOCODER_URL</code
-						> to a Nominatim-compatible endpoint to search addresses. Self-host it if you can.
+						>
+						to <span class="font-mono text-[11px]">https://nominatim.openstreetmap.org</span> (with
+						<code class="font-mono text-[11px]">GEOCODER_EMAIL</code>) or your own Nominatim to
+						search addresses.
 					</span>
 				</p>
 			{:else if owner}
@@ -361,7 +364,8 @@
 								{/if}
 								{#if geoHealth.dataUpdated}
 									<br /><span style="color: var(--ink-4)"
-										>Data imported up to {geoHealth.dataUpdated}.</span
+										>{data.geocoderHosted ? 'Map data as of' : 'Data imported up to'}
+										{geoHealth.dataUpdated}.</span
 									>
 								{/if}
 							</span>

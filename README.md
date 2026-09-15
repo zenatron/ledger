@@ -503,11 +503,16 @@ full environment contract. Beyond that:
   Leave it out of your backups. It would otherwise carry hundreds of megabytes
   of somebody else's map into every archive, and deleting it is safe at any
   time.
-- The optional self-hosted geocoder is behind a compose profile:
-  `docker compose --profile geocoder up -d`. It is not started by default
-  because the first run imports an OpenStreetMap extract, which takes a while
-  and wants real disk. Set `NOMINATIM_IMPORT_URL` to your own region; the
-  default is a placeholder that finds almost nothing.
+- Address search needs a geocoder. The easy one is the public instance:
+  set `GEOCODER_URL=https://nominatim.openstreetmap.org` and `GEOCODER_EMAIL`.
+  The app keeps to its usage policy on its own (one request a second, no
+  search-as-you-type, answers cached for a day).
+- If address text must stay on your network, self-host one instead. It sits
+  behind a compose profile, `docker compose --profile geocoder up -d`, with
+  `GEOCODER_URL=http://geocoder:8080`. It is not started by default because
+  the first run imports an OpenStreetMap extract, which takes a while and
+  wants real disk. Set `NOMINATIM_IMPORT_URL` to your own region; the default
+  is a placeholder that finds almost nothing.
 
 ## Backup & restore
 

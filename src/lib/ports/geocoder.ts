@@ -31,6 +31,9 @@ export interface GeocodeResult {
 export interface GeocoderProvider {
 	kind: 'off' | 'nominatim';
 	endpoint: string | null;
+	/** Someone else's instance (the public one), so there is no import or
+	 *  extract of ours to talk about when it finds nothing. */
+	hosted: boolean;
 }
 
 /**
@@ -98,7 +101,7 @@ export interface Geocoder {
  */
 export const nullGeocoder: Geocoder = {
 	available: false,
-	describe: () => ({ kind: 'off', endpoint: null }),
+	describe: () => ({ kind: 'off', endpoint: null, hosted: false }),
 	search: async () => [],
 	checkHealth: async () => ({
 		state: 'off',
