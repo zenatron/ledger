@@ -1146,44 +1146,37 @@
 		Two rows that each mean something: what money did (in, out, set aside),
 		then what happened to requests (returned, refused, withdrawn).
 	-->
+	<!--
+		One tile, both grids. Label, figure and hint sit on tight line boxes with
+		the same step between each: the figure used to keep the body's 1.5 leading,
+		so its half-leading padded the gap above it and not the one below, and the
+		label sat visibly further from the number than the hint did.
+	-->
+	{#snippet lifetimeTile(stat: { label: string; minor: bigint; tone: string; hint: string })}
+		{@const fig = figure(stat.minor)}
+		<p
+			class="text-[11px] leading-none font-semibold tracking-[0.08em] uppercase"
+			style="color: {stat.tone}"
+		>
+			{stat.label}{fig.symbol ? ` ${fig.symbol}` : ''}
+		</p>
+		<p class="num mt-2 text-[16px] leading-none font-semibold" style="color: var(--ink)">
+			{fig.digits}
+		</p>
+		<p class="mt-2 text-[11px] leading-tight" style="color: var(--ink-3)">{stat.hint}</p>
+	{/snippet}
 	<div>
 		<p class="section-label mb-2 px-1">Lifetime</p>
 		<div class="grid grid-cols-3 gap-2">
 			{#each lifetimeStats as stat (stat.label)}
-				{@const fig = figure(stat.minor)}
-				<div class="card p-3.5">
-					<p
-						class="text-[11px] font-semibold tracking-[0.08em] uppercase"
-						style="color: {stat.tone}"
-					>
-						{stat.label}{fig.symbol ? ` ${fig.symbol}` : ''}
-					</p>
-					<p class="num mt-1.5 text-[16px] font-semibold" style="color: var(--ink)">
-						{fig.digits}
-					</p>
-					<p class="mt-0.5 text-[11px] leading-tight" style="color: var(--ink-3)">{stat.hint}</p>
-				</div>
+				<div class="card p-3.5">{@render lifetimeTile(stat)}</div>
 			{/each}
 		</div>
 		<div class="mt-2 grid grid-cols-2 gap-2">
 			{#each lifetimePairs as pair (pair[0].label)}
 				<div class="card">
 					{#each pair as stat, i (stat.label)}
-						{@const fig = figure(stat.minor)}
-						<div class="p-3.5 {i === 0 ? 'hairline' : ''}">
-							<p
-								class="text-[11px] font-semibold tracking-[0.08em] uppercase"
-								style="color: {stat.tone}"
-							>
-								{stat.label}{fig.symbol ? ` ${fig.symbol}` : ''}
-							</p>
-							<p class="num mt-1.5 text-[16px] font-semibold" style="color: var(--ink)">
-								{fig.digits}
-							</p>
-							<p class="mt-0.5 text-[11px] leading-tight" style="color: var(--ink-3)">
-								{stat.hint}
-							</p>
-						</div>
+						<div class="p-3.5 {i === 0 ? 'hairline' : ''}">{@render lifetimeTile(stat)}</div>
 					{/each}
 				</div>
 			{/each}
