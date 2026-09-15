@@ -1,5 +1,16 @@
 import { isValidCoords } from '$lib/domain/location/coords';
 import type { Geocoder, GeocodeResult, GeocoderHealth } from '$lib/ports/geocoder';
+
+/**
+ * An `Accept-Language` header, reduced to what Nominatim's `accept-language`
+ * parameter understands — language tags and q-weights — or null. It is header
+ * text from the browser and ends up in a URL and a cache key, so anything
+ * unexpected is dropped rather than escaped.
+ */
+export function cleanLanguage(raw: string | null | undefined): string | null {
+	const v = raw?.trim().slice(0, 100) ?? '';
+	return /^[A-Za-z0-9\-,;=. *]+$/.test(v) ? v : null;
+}
 import { isPublicNominatim } from './public';
 
 /**
@@ -107,7 +118,8 @@ export function nominatimGeocoder(cfg: { endpoint: string; email?: string }): Ge
 	async function fetchSearch(
 		q: string,
 		limit: number,
-		timeoutMs: number
+		timeoutMs: number,
+		language: string | null = null
 	): Promise<GeocodeResult[] | null> {
 		const url = apiUrl(cfg.endpoint, 'search');
 		url.searchParams.set('q', q);
@@ -115,6 +127,7 @@ export function nominatimGeocoder(cfg: { endpoint: string; email?: string }): Ge
 		url.searchParams.set('limit', String(Math.min(Math.max(limit, 1), 10)));
 		url.searchParams.set('addressdetails', '0');
 		if (cfg.email) url.searchParams.set('email', cfg.email);
+		if (language) url.searchParams.set('accept-language', language);
 
 		const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
 		// 429 included: a rate-limited provider has no answer, and the caller's
@@ -143,14 +156,17 @@ export function nominatimGeocoder(cfg: { endpoint: string; email?: string }): Ge
 
 		describe: () => ({ kind: 'nominatim', endpoint: cfg.endpoint, hosted }),
 
-		async search(query, limit = 5): Promise<GeocodeResult[]> {
+		async search(query, limit = 5, opts = {}): Promise<GeocodeResult[]> {
 			const q = query.trim();
 			// Two characters cannot identify a place, and asking wastes a request
 			// against a quota that is not ours.
 			if (q.length < 3) return [];
 
 			// Case and spacing don't change the place; they shouldn't miss the cache.
-			const key = `${limit}\0${q.toLowerCase().replace(/\s+/g, ' ')}`;
+			const language = cleanLanguage(opts.language);
+			// Language is part of the question: the same place, named in German, is
+			// a different answer from the one named in English.
+			const key = `${limit}\0${language ?? ''}\0${q.toLowerCase().replace(/\s+/g, ' ')}`;
 			const hit = cache.get(key);
 			if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.results;
 
@@ -166,7 +182,7 @@ export function nominatimGeocoder(cfg: { endpoint: string; email?: string }): Ge
 			if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 
 			try {
-				const results = await fetchSearch(q, limit, TIMEOUT_MS);
+				const results = await fetchSearch(q, limit, TIMEOUT_MS, language);
 				if (results === null) return [];
 				cache.delete(key);
 				cache.set(key, { at: Date.now(), results });

@@ -38,7 +38,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const query = typeof body?.query === 'string' ? body.query : '';
 	if (!query.trim()) return empty;
 
-	const results = await geocoder.search(query, 5);
+	// The browser's own language list, so a search abroad reads in the reader's
+	// words. It travels no further than the geocoder this deployment already uses.
+	const results = await geocoder.search(query, 5, {
+		language: request.headers.get('accept-language')
+	});
 
 	/*
 	 * Deduped after rounding, not before.

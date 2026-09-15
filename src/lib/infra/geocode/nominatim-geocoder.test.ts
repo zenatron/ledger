@@ -197,6 +197,29 @@ describe('nominatimGeocoder', () => {
 		expect(out[0].label).toBe('Ferry Building, San Francisco');
 	});
 
+	it("asks in the reader's language, and caches each language apart", async () => {
+		vi.useFakeTimers();
+		const spy = OK([SF_ROW]);
+		vi.stubGlobal('fetch', spy);
+		const g = make();
+		await g.search('Marienplatz', 5, { language: 'en-US,en;q=0.9' });
+		const url = new URL(String(spy.mock.calls[0][0]));
+		expect(url.searchParams.get('accept-language')).toBe('en-US,en;q=0.9');
+		const german = g.search('Marienplatz', 5, { language: 'de' });
+		await vi.advanceTimersByTimeAsync(1000);
+		await german;
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+
+	it('drops a language header that is not language tags', async () => {
+		const spy = OK([SF_ROW]);
+		vi.stubGlobal('fetch', spy);
+		await make().search('Marienplatz', 5, { language: 'en&format=xml' });
+		const url = new URL(String(spy.mock.calls[0][0]));
+		expect(url.searchParams.get('accept-language')).toBeNull();
+		expect(url.searchParams.get('format')).toBe('jsonv2');
+	});
+
 	it('never asks for more than a sane number of rows', async () => {
 		const spy = OK([SF_ROW]);
 		vi.stubGlobal('fetch', spy);

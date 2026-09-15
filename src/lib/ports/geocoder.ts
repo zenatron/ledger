@@ -28,6 +28,15 @@ export interface GeocodeResult {
 	label: string;
 }
 
+export interface GeocodeOptions {
+	/**
+	 * The reader's `Accept-Language`, passed through so a place abroad comes
+	 * back named in words they read ("Munich, Germany") rather than the local
+	 * script. Untrusted header text; the adapter decides what survives.
+	 */
+	language?: string | null;
+}
+
 export interface GeocoderProvider {
 	kind: 'off' | 'nominatim';
 	endpoint: string | null;
@@ -82,7 +91,7 @@ export interface Geocoder {
 	 * Returns `[]` for anything it cannot answer, including every failure mode.
 	 * Callers must treat an empty array as "no answer", never as "no such place".
 	 */
-	search(query: string, limit?: number): Promise<GeocodeResult[]>;
+	search(query: string, limit?: number, opts?: GeocodeOptions): Promise<GeocodeResult[]>;
 
 	/**
 	 * Ask the provider how it is, for the settings screen. Owner-initiated only.
