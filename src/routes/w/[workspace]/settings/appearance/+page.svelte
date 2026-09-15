@@ -73,12 +73,33 @@
 		/>
 	</section>
 
+	{#if data.isOwner}
+		<section class="card p-5">
+			<h2
+				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
+				style="color: var(--ink)"
+			>
+				<Palette class="h-4 w-4" style="color: var(--ws-accent)" /> Accent
+			</h2>
+			<p class="mt-1 mb-3.5 text-[13px]" style="color: var(--ink-3)">
+				Colors this workspace for everyone in it. Each workspace keeps its own.
+			</p>
+			<form method="POST" action="?/accent" use:submit={{ success: 'Accent updated' }}>
+				<AccentPicker bind:value={accent} label="" />
+				<input type="hidden" name="accentColor" value={accent} />
+				{#if accent !== currentAccent}
+					<button class="btn btn-tint mt-3.5 px-4 py-2 text-[14px]">Save accent</button>
+				{/if}
+			</form>
+		</section>
+	{/if}
+
 	<!--
-		Contrast sits with the theme because it is the same kind of choice: how
-		this device reads the page, stored on it, and following the OS until told
-		otherwise. More keeps the paper and the layout. It darkens the ink,
-		strengthens the rules and deepens the status colours, like the same
-		statement printed with a fresher ribbon.
+		Contrast is the same kind of choice as the theme — how this device reads
+		the page, stored on it, following the OS until told otherwise — and sits
+		after the accent, the colour it most visibly changes. More keeps the paper
+		and the layout. It darkens the ink, strengthens the rules and deepens the
+		status colours, like the same statement printed with a fresher ribbon.
 	-->
 	<section class="card p-5">
 		<h2
@@ -102,25 +123,4 @@
 			ariaLabel="Contrast"
 		/>
 	</section>
-
-	{#if data.isOwner}
-		<section class="card p-5">
-			<h2
-				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
-				style="color: var(--ink)"
-			>
-				<Palette class="h-4 w-4" style="color: var(--ws-accent)" /> Accent
-			</h2>
-			<p class="mt-1 mb-3.5 text-[13px]" style="color: var(--ink-3)">
-				Colors this workspace for everyone in it. Each workspace keeps its own.
-			</p>
-			<form method="POST" action="?/accent" use:submit={{ success: 'Accent updated' }}>
-				<AccentPicker bind:value={accent} label="" />
-				<input type="hidden" name="accentColor" value={accent} />
-				{#if accent !== currentAccent}
-					<button class="btn btn-tint mt-3.5 px-4 py-2 text-[14px]">Save accent</button>
-				{/if}
-			</form>
-		</section>
-	{/if}
 </div>
