@@ -24,7 +24,7 @@
 		if (c === 'more' || (c !== 'standard' && matchMedia('(prefers-contrast: more)').matches)) {
 			root.setAttribute('data-contrast', 'more');
 		}
-	} catch (e) {
+	} catch {
 		/* localStorage/matchMedia unavailable — fall through to the light default */
 	}
 })();

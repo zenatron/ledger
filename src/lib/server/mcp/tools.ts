@@ -876,7 +876,7 @@ export const TOOLS: McpTool[] = [
 							.map((t) => `- ${t.fromName} pays ${t.toName} ${fmt(t.amountMinor, ctx)}`)
 							.join('\n')
 					: 'Everyone is even.') +
-				`\n(total ${data.total_spent}, split ${s.basis === 'income' ? 'by income' : 'evenly'}, as the token\'s member sees it)`;
+				`\n(total ${data.total_spent}, split ${s.basis === 'income' ? 'by income' : 'evenly'}, as the token's member sees it)`;
 			return { text, data };
 		}
 	},

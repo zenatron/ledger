@@ -130,7 +130,6 @@
 	 */
 	let feedPending = $state(true);
 	let awaitingPending = $state(true);
-	let sleepingPending = $state(true);
 	let awaitingRows = $state<Entry[]>([]);
 	let sleepingRows = $state<Entry[]>([]);
 	let f = $state<Forecast | undefined>(undefined);
@@ -153,7 +152,6 @@
 		const run = ++runToken;
 		feedPending = true;
 		awaitingPending = true;
-		sleepingPending = true;
 		forecastFailed = false;
 		data.feed.then(
 			(v) => {
@@ -185,12 +183,10 @@
 			(v) => {
 				if (run !== runToken) return;
 				sleepingRows = v;
-				sleepingPending = false;
 			},
-			() => {
-				if (run !== runToken) return;
-				sleepingPending = false;
-			}
+			// The sleeping section has no skeleton: it appears once it has rows,
+			// so a failure just leaves it absent.
+			() => {}
 		);
 		data.forecast.then(
 			(v) => {
@@ -1229,7 +1225,7 @@
 		     itself — under a search or filter you want raw results. -->
 		<p class="section-label mt-2 mb-1 px-1" style="color: var(--pending)">Awaiting a decision</p>
 		<div class="mb-6">
-			{#each Array(2) as _, i (i)}
+			{#each Array(2), i (i)}
 				<SkeletonRow index={i} chip last={i === 1} />
 			{/each}
 		</div>
@@ -1241,7 +1237,7 @@
 		     theatre. -->
 		<p class="section-label mt-2 mb-1 px-1">Recent</p>
 		<div>
-			{#each Array(4) as _, i (i)}
+			{#each Array(4), i (i)}
 				<SkeletonRow index={i} chip last={i === 3} />
 			{/each}
 		</div>
@@ -1370,7 +1366,7 @@
 				     well as twenty would; a skeleton list as long as the content it
 				     imitates is theatre. -->
 				{#if loadingMore}
-					{#each Array(4) as _, i (i)}
+					{#each Array(4), i (i)}
 						<SkeletonRow index={i} chip last={i === 3} />
 					{/each}
 				{/if}

@@ -36,6 +36,7 @@ const ABSTENTIONS = new Set([
 ]);
 
 /** ASCII control characters a model or a bank descriptor might smuggle in. */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
 const CONTROL_CHARS = new RegExp('[\\u0000-\\u001F\\u007F]', 'g');
 /** Punctuation/quotes/brackets a model tends to wrap an answer in. */
 const WRAPPERS = /^["'`{}[\]().,:;\s]+|["'`{}[\]().,:;\s]+$/g;

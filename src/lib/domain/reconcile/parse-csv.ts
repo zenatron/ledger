@@ -285,7 +285,7 @@ function parseDate(raw: string, order: 'MDY' | 'DMY' | 'YMD'): Date | null {
 	if (s.length === 0) return null;
 
 	// ISO 8601: 2024-01-15 or 2024/01/15
-	const iso = /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/.exec(s);
+	const iso = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(s);
 	if (iso) return localDate(+iso[1], +iso[2], +iso[3]);
 
 	// Compact: 20240115

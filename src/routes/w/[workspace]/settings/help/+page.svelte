@@ -323,7 +323,7 @@
 		</p>
 	</div>
 
-	{#each groups as group}
+	{#each groups as group (group.label)}
 		<p class="section-label px-1 pt-2">{group.label}</p>
 		<div class="space-y-2">
 			{#each group.sections as s (s.id)}

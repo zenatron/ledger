@@ -17,10 +17,8 @@
 	let showBudgetForm = $state(false);
 	// The form's cadence, defaulting to the view it was opened from — the week
 	// view probably means a weekly cap, the month view a monthly one.
-	let budgetCadence = $state<'month' | 'week'>('month');
-	$effect(() => {
-		budgetCadence = period === 'week' ? 'week' : 'month';
-	});
+	// Writable derived: follows the period until the form's own control moves it.
+	let budgetCadence = $derived<'month' | 'week'>(data.period === 'week' ? 'week' : 'month');
 	const currency = $derived(data.workspace.currency);
 	const period = $derived(data.period);
 	const isMonth = $derived(period === 'month');

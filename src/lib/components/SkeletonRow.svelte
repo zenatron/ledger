@@ -37,7 +37,7 @@
 >
 	<div class="skeleton h-10 w-10 shrink-0 rounded-[12px]" style="--j: 0"></div>
 	<div class="flex min-w-0 flex-1 flex-col gap-1.5">
-		{#each Array(lines) as _, i (i)}
+		{#each Array(lines), i (i)}
 			<div class="skeleton h-3.5" style="max-width: {i === 0 ? 62 : 38}%; --j: {i + 1}"></div>
 		{/each}
 	</div>
