@@ -42,7 +42,7 @@
 		href="/w/{slug}/calendar"
 		class="press icon-btn absolute top-1/2 right-0 -translate-y-1/2"
 		aria-label="Month calendar"
-		title="What's coming, by day"
+		title="Scheduled, by day"
 	>
 		<CalendarDays class="h-4 w-4" style="color: var(--ink-3)" />
 	</a>

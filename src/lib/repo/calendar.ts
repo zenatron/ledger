@@ -51,7 +51,8 @@ export async function calendarSources(
 				amountMinor: recurringRule.amountMinor,
 				rrule: recurringRule.rrule,
 				nextOccurrenceAt: recurringRule.nextOccurrenceAt,
-				autoComplete: recurringRule.autoComplete
+				autoComplete: recurringRule.autoComplete,
+				memberId: recurringRule.memberId
 			})
 			.from(recurringRule)
 			.where(
@@ -114,6 +115,7 @@ export async function calendarSources(
 		scheduled.push({
 			kind: 'bill',
 			sourceId: r.id,
+			ownerMemberId: r.memberId,
 			label: r.itemName,
 			amountMinor: r.amountMinor,
 			direction: 'out',

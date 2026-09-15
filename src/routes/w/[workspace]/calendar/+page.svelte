@@ -18,7 +18,9 @@
 	import { dismiss } from '$lib/actions/dismiss';
 	import { modal } from '$lib/actions/modal';
 	import { fade, scale } from 'svelte/transition';
-	import { ChevronLeft, ChevronRight, X } from '@lucide/svelte';
+	import { swipe } from '$lib/actions/swipe';
+	import { submit } from '$lib/actions/submit';
+	import { ChevronLeft, ChevronRight, OctagonX, Pause, X } from '@lucide/svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -63,7 +65,7 @@
 	}
 </script>
 
-<svelte:head><title>{data.month.label} · Calendar · Ledger</title></svelte:head>
+<svelte:head><title>{data.month.label} · Scheduled · Ledger</title></svelte:head>
 
 <div class="mx-auto max-w-lg">
 	<a
@@ -77,7 +79,7 @@
 	<!-- Masthead: the month as the headline, what it costs as the standfirst. -->
 	<div class="flex items-end justify-between gap-3 px-1">
 		<div class="min-w-0">
-			<p class="section-label">What's coming</p>
+			<p class="section-label">Scheduled</p>
 			<h1 class="mt-1 truncate text-[28px]">{data.month.label}</h1>
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
@@ -94,18 +96,20 @@
 		In and out, never netted. A single figure would hide the shape of the month:
 		£4,000 in and £3,900 out is a very different month from £100 in and nothing
 		out, and they net to the same number.
+
+		Stacked, one ledger line each. Side by side, two five-figure amounts and
+		their overlines had half a phone's width apiece and read as cramped.
 	-->
-	<div class="card mt-4 flex items-stretch p-4">
-		<div class="flex-1">
+	<div class="card mt-4 px-4">
+		<div class="hairline flex items-baseline justify-between gap-3 py-3">
 			<p class="section-label">Coming in</p>
-			<p class="num mt-0.5 text-[20px] font-semibold" style="color: var(--approve)">
+			<p class="num text-[20px] font-semibold" style="color: var(--approve)">
 				{formatMinor(data.month.inMinor, currency)}
 			</p>
 		</div>
-		<div class="w-px" style="background: var(--hairline)"></div>
-		<div class="flex-1 pl-4">
+		<div class="flex items-baseline justify-between gap-3 py-3">
 			<p class="section-label">Going out</p>
-			<p class="num mt-0.5 text-[20px] font-semibold" style="color: var(--ink)">
+			<p class="num text-[20px] font-semibold" style="color: var(--ink)">
 				{formatMinor(data.month.outMinor, currency)}
 			</p>
 		</div>
@@ -183,7 +187,9 @@
 	{/if}
 </div>
 
-{#if day}
+<!-- Entries, not just the day: pausing the last bill on a day empties it, and
+     an open sheet with nothing in it is a dead end. -->
+{#if day && day.entries.length > 0}
 	{@const d = day}
 	<div
 		class="fixed inset-0 z-50"
@@ -224,36 +230,93 @@
 				>
 			</div>
 			<div class="px-5 pb-4">
-				{#each d.entries as e (e.sourceId + e.label)}
-					<div class="hairline flex items-baseline gap-3 py-2.5 first:pt-0">
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-[15px]" style="color: var(--ink)">{e.label}</span>
-							<span class="mt-0.5 block text-[12px]" style="color: {kindColor(e.kind)}">
-								{e.kind === 'income'
-									? 'Expected in'
-									: e.kind === 'saving'
-										? 'Set aside'
-										: e.kind === 'decision'
-											? 'Comes back to decide'
-											: 'Bill'}{e.estimate ? ' · estimated' : ''}
-							</span>
-						</span>
-						{#if e.direction !== 'none'}
-							<span
-								class="num shrink-0 text-[15px] font-semibold"
-								style="color: {e.direction === 'in' ? 'var(--approve)' : 'var(--ink)'}; {e.estimate
-									? 'text-decoration: underline dotted; text-underline-offset: 3px;'
-									: ''}"
-							>
-								{e.direction === 'in' ? '+' : ''}{formatMinor(e.amountMinor, currency)}
-							</span>
-						{:else}
-							<span class="num shrink-0 text-[15px]" style="color: var(--ink-3)">
-								{formatMinor(e.amountMinor, currency)}
-							</span>
+				{#each d.entries as e, i (e.sourceId + e.label)}
+					<!--
+						Swipe parity with Recurring for your own bills: a left swipe reveals
+						Pause and End for the rule behind the entry. Other kinds are not
+						rules you can pause from a date, so they stay still.
+					-->
+					{@const swipeable = e.kind === 'bill' && e.mine}
+					<div
+						class="relative -mx-5 overflow-hidden {i < d.entries.length - 1 ? 'hairline' : ''}"
+						use:swipe={{ width: swipeable ? 176 : 0, enabled: swipeable }}
+					>
+						{#if swipeable}
+							<div class="absolute inset-y-0 right-0 z-0 flex">
+								<form
+									method="POST"
+									action="?/pause"
+									use:submit={{ success: 'Paused' }}
+									class="contents"
+								>
+									<input type="hidden" name="ruleId" value={e.sourceId} />
+									<button
+										class="press flex h-full w-[88px] flex-col items-center justify-center gap-1 text-[13px] font-semibold"
+										style="background: var(--pending); color: var(--paper)"
+									>
+										<Pause class="h-4 w-4" /> Pause
+									</button>
+								</form>
+								<form
+									method="POST"
+									action="?/end"
+									use:submit={{
+										confirm: 'End this recurring charge? It stops generating new purchases.',
+										success: 'Recurring charge ended'
+									}}
+									class="contents"
+								>
+									<input type="hidden" name="ruleId" value={e.sourceId} />
+									<button
+										class="press flex h-full w-[88px] flex-col items-center justify-center gap-1 text-[13px] font-semibold"
+										style="background: var(--deny); color: var(--paper)"
+									>
+										<OctagonX class="h-4 w-4" /> End
+									</button>
+								</form>
+							</div>
 						{/if}
+						<div
+							data-swipe-content
+							class="relative z-10 flex items-baseline gap-3 px-5 py-2.5"
+							style="background: var(--surface); touch-action: pan-y"
+						>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-[15px]" style="color: var(--ink)">{e.label}</span>
+								<span class="mt-0.5 block text-[12px]" style="color: {kindColor(e.kind)}">
+									{e.kind === 'income'
+										? 'Expected in'
+										: e.kind === 'saving'
+											? 'Set aside'
+											: e.kind === 'decision'
+												? 'Comes back to decide'
+												: 'Bill'}{e.estimate ? ' · estimated' : ''}
+								</span>
+							</span>
+							{#if e.direction !== 'none'}
+								<span
+									class="num shrink-0 text-[15px] font-semibold"
+									style="color: {e.direction === 'in'
+										? 'var(--approve)'
+										: 'var(--ink)'}; {e.estimate
+										? 'text-decoration: underline dotted; text-underline-offset: 3px;'
+										: ''}"
+								>
+									{e.direction === 'in' ? '+' : ''}{formatMinor(e.amountMinor, currency)}
+								</span>
+							{:else}
+								<span class="num shrink-0 text-[15px]" style="color: var(--ink-3)">
+									{formatMinor(e.amountMinor, currency)}
+								</span>
+							{/if}
+						</div>
 					</div>
 				{/each}
+				{#if d.entries.some((e) => e.kind === 'bill' && e.mine)}
+					<p class="mt-3 text-[12px] leading-relaxed" style="color: var(--ink-3)">
+						Swipe one of your bills left to pause or end it.
+					</p>
+				{/if}
 				{#if d.entries.some((e) => e.estimate)}
 					<!--
 						Said once, at the bottom, rather than on every row. The dotted

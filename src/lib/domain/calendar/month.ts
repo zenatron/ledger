@@ -45,6 +45,8 @@ export interface CalendarEntry {
 	direction: Direction;
 	/** True when the figure is projected rather than settled. */
 	estimate: boolean;
+	/** The member who owns the rule behind it, when there is one, so a view can offer that person its actions. */
+	ownerMemberId?: string;
 }
 
 export interface CalendarDay {
@@ -81,6 +83,7 @@ export interface ScheduledSource {
 	 */
 	notBefore?: CalDate;
 	estimate: boolean;
+	ownerMemberId?: string;
 }
 
 /** Something that happens once on a known day: a held purchase due to wake, a one-off income. */
@@ -141,7 +144,8 @@ export function buildMonth(input: CalendarInput, year: number, month: number): C
 				label: s.label,
 				amountMinor: s.amountMinor,
 				direction: s.direction,
-				estimate: s.estimate
+				estimate: s.estimate,
+				ownerMemberId: s.ownerMemberId
 			});
 		}
 	}

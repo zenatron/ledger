@@ -83,7 +83,9 @@ export async function load(ctx: WorkspaceContext, { params, url }: LoadEvent) {
 				label: e.label,
 				amountMinor: e.amountMinor,
 				direction: e.direction,
-				estimate: e.estimate
+				estimate: e.estimate,
+				// Their own bills can be paused or ended from the day sheet, as on Recurring.
+				mine: e.ownerMemberId === ctx.member.id
 			}))
 		}))
 	};
