@@ -77,7 +77,7 @@ await db.insert(schema.workspace).values({
 	timezone: 'America/New_York',
 	maxSealDays: 30,
 	reapprovalThresholdPct: 20,
-	accentColor: '#FF9F0A',
+	accentColor: '#C9700A',
 	// The map 403s with places off, and the screenshot pass captures it.
 	locationEnabled: true,
 	createdAt: now

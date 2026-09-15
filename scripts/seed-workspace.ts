@@ -123,7 +123,7 @@ await db.insert(schema.workspace).values({
 	timezone: 'America/Chicago',
 	maxSealDays: 30,
 	reapprovalThresholdPct: 15,
-	accentColor: '#FF9F0A',
+	accentColor: '#C9700A',
 	billImportEnabled: true,
 	barcodeEnabled: true,
 	locationEnabled: true,
