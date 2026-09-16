@@ -734,7 +734,13 @@
 				>
 					{overBudget ? 'Over budget' : 'Net'}
 				</p>
-				<span style="color: {netBad ? 'var(--deny)' : 'var(--approve)'}">
+				<!--
+					The figure keeps its own sign, even when the heading says over budget.
+					A month can earn well and still overrun its budget, and printing
+					+$10,020 in red would be a lie about that number. The heading and the
+					card's wash carry the verdict; this carries the arithmetic.
+				-->
+				<span style="color: {net < 0n ? 'var(--deny)' : 'var(--approve)'}">
 					<Money minor={net} {currency} sign block class="mt-0.5 text-[18px] font-semibold" />
 				</span>
 				{#if prevNet !== 0n && net !== prevNet}
@@ -791,12 +797,13 @@
 			<div class="mb-3 flex items-center justify-between px-1">
 				<p class="section-label">Budgets</p>
 				{#if data.isOwner}
+					<!-- The same tinted "+ New …" every other section uses to add to its
+					     own list, rather than a bare text link doing the same job. -->
 					<button
 						onclick={() => (showBudgetForm = !showBudgetForm)}
-						class="press text-[13px] font-semibold"
-						style="color: var(--accent-ink)"
+						class="btn {showBudgetForm ? 'btn-ghost' : 'btn-tint'} px-4 py-1.5 text-[13px]"
 					>
-						{showBudgetForm ? 'Done' : 'Set budget'}
+						{showBudgetForm ? 'Cancel' : '+ New budget'}
 					</button>
 				{/if}
 			</div>
