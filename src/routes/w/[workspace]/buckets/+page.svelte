@@ -749,10 +749,11 @@
 				{/if}
 				<p class="mt-1.5 text-[13px]" style="color: var(--ink-3)">
 					{#if createScope === 'anyone'}
-						Anyone in the workspace can charge a purchase to it.
+						Anyone in the workspace can charge a purchase to this bucket.
+					{:else if createScope === 'only-me'}
+						No one except you will be able to charge a purchase to this bucket.
 					{:else}
-						You can always charge it. Anyone left out loses it from their purchase form and from any
-						recurring rule that charged it.
+						Only you and the people you pick can charge a purchase to this bucket.
 					{/if}
 				</p>
 			</div>
@@ -838,8 +839,7 @@
 						style="background: var(--surface-2); color: var(--ink-2)"
 					>
 						{allowanceFor ? allowanceFor.memberName : 'They'} get{allowanceFor ? 's' : ''} a bucket only
-						they can spend from, topped up on this schedule. Anything that fits comes straight out of
-						it. Anything bigger comes to an owner to approve.
+						they can spend from, topped up on this schedule. Overages must be approved by an owner.
 					</p>
 
 					{#if allowanceFor}
@@ -911,8 +911,8 @@
 				</div>
 			{:else if !allowanceOpen}
 				<p class="px-1 text-[13px] leading-relaxed" style="color: var(--ink-3)">
-					Give someone a set amount to spend on their own, topped up on a schedule. Anything bigger
-					than what's left comes to an owner to approve.
+					Give someone a set amount to spend on their own, topped up on a schedule. Overages must be
+					approved by an owner.
 				</p>
 			{/if}
 		</section>
