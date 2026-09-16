@@ -437,11 +437,7 @@
 			</p>
 
 			{#if !confirmingDelete}
-				<button
-					onclick={armDelete}
-					class="press mt-3.5 rounded-[var(--r-sm)] px-4 py-2 text-[14px] font-medium"
-					style="color: var(--deny); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--deny) 40%, transparent)"
-				>
+				<button onclick={armDelete} class="btn btn-danger mt-3.5 w-full py-2.5 text-[15px]">
 					Delete this workspace…
 				</button>
 			{:else}

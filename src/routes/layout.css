@@ -555,6 +555,22 @@
 		font-size: 15px;
 	}
 
+	/*
+	 * The shape every destructive action takes: deny ink on a wash of itself.
+	 *
+	 * Loud enough that you never take it for an ordinary control, quiet enough
+	 * that it doesn't sit on the page shouting — a solid red fill would make
+	 * "Disable" the most emphatic thing on a screen full of harmless settings.
+	 * Pair it with a confirm; this is the look, not the safety.
+	 */
+	.btn-danger {
+		background: color-mix(in oklab, var(--deny) 10%, transparent);
+		color: var(--deny);
+	}
+	.btn-danger:active {
+		background: color-mix(in oklab, var(--deny) 16%, transparent);
+	}
+
 	.chip {
 		display: inline-flex;
 		align-items: center;

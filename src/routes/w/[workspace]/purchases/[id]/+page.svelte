@@ -385,9 +385,7 @@
 						}}
 						class="flex-1"
 					>
-						<button class="btn btn-plain w-full py-2.5 text-[14px]" style="color: var(--deny)"
-							>Let it go</button
-						>
+						<button class="btn btn-danger w-full py-2.5 text-[14px]">Let it go</button>
 					</form>
 				</div>
 			{/if}
@@ -1353,7 +1351,7 @@
 				}}
 				class="text-center"
 			>
-				<button class="btn btn-plain" style="color: var(--deny)">Remove this entry</button>
+				<button class="btn btn-danger px-5 py-2.5 text-[15px]">Remove this entry</button>
 			</form>
 		{/if}
 

@@ -865,7 +865,7 @@
 										class="ml-auto"
 									>
 										<input type="hidden" name="ruleId" value={r.id} />
-										<button class="press" style="color: var(--deny)">Delete</button>
+										<button class="btn btn-danger px-3 py-1.5 text-[13px]">Delete</button>
 									</form>
 								</div>
 							{/if}
