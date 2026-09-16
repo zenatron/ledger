@@ -545,9 +545,15 @@
 
 <svelte:head><title>Map · Ledger</title></svelte:head>
 
+<!--
+	The safe-area inset belongs in this sum. `main` pads its bottom by the tab bar
+	*plus* the home-bar inset, and subtracting only the tab bar left the map taller
+	than the space it sits in by exactly that inset — so an installed PWA on a
+	device with a home bar scrolled a map that is supposed to be fixed.
+-->
 <div
 	class="-mx-4 flex flex-col"
-	style="height: calc(100dvh - var(--header-h, 0px) - var(--nav-h) - 0.75rem)"
+	style="height: calc(100dvh - var(--header-h, 0px) - var(--nav-h) - env(safe-area-inset-bottom, 0px) - 0.75rem)"
 >
 	<!-- Back to the list, and what window we're looking at. -->
 	<div class="flex items-center justify-between px-4 pt-1 pb-2">
