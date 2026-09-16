@@ -113,7 +113,7 @@ describe('narrateMonth', () => {
 	it('leads with the shortfall when over', () => {
 		const n = narrateMonth({ ...base, incomeMinor: 100_000n, spentMinor: 150_000n }, fmt);
 		expect(n.tone).toBe('over');
-		expect(n.lead).toContain('$500.00 behind');
+		expect(n.lead).toContain('$500.00 over spent');
 	});
 
 	it('celebrates a surplus when saved', () => {

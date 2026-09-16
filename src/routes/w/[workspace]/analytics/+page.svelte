@@ -224,6 +224,8 @@
 	const released = $derived(data.releasedMinor ?? 0n);
 	const overdraft = $derived(data.overdraftMinor ?? 0n);
 	const net = $derived(data.incomeMinor - data.totalMinor - savings + released);
+	/** The Net card's tone: a negative month, or one that has overrun its budget. */
+	const netBad = $derived(net < 0n || overBudget);
 	const prevNet = $derived(
 		data.prevIncomeMinor ? data.prevIncomeMinor - data.prevTotalMinor - savings + released : 0n
 	);
@@ -246,8 +248,17 @@
 	const netSummary = $derived.by(() => {
 		if (data.incomeMinor === 0n) return `No income recorded this ${period}`;
 		if (onHand > 0n) {
-			const rate = sp >= 0 ? `${formatPct(sp)} free` : 'over budget';
-			return `${formatMinor(onHand, currency)} in buckets · ${rate}`;
+			/*
+			 * The rate is dropped whenever the card's heading is already a verdict.
+			 *
+			 * It is measured against income, not against the budget, so a month that
+			 * earned well and overspent its budget read "Over budget · 69% free" —
+			 * two true statements that flatly contradict each other at a glance. The
+			 * heading is the finding; this line is just what is in the buckets.
+			 */
+			return sp >= 0 && !overBudget
+				? `${formatMinor(onHand, currency)} in buckets · ${formatPct(sp)} free`
+				: `${formatMinor(onHand, currency)} in buckets`;
 		}
 		if (sp >= 0) return `Saving ${formatPct(sp)} of what came in`;
 		return `Spending more than income this ${period}`;
@@ -705,19 +716,25 @@
 					<Money minor={-savings} {currency} sign class="text-[16px] font-semibold" />
 				</div>
 			</div>
+			<!--
+				The heading carries the verdict. "Net" over a figure that is fine and
+				"Net" over a month that has overrun its budget are the same word doing
+				two different jobs, and the one that matters was left to a clause
+				further down. Over budget is a red card with its name on it.
+			-->
 			<div
 				class="card flex flex-col items-center justify-center p-4"
-				style="background: {net < 0n
+				style="background: {netBad
 					? 'color-mix(in oklab, var(--deny) 8%, var(--surface))'
 					: 'color-mix(in oklab, var(--approve) 8%, var(--surface))'}"
 			>
 				<p
 					class="text-[11px] font-semibold tracking-[0.08em] uppercase"
-					style="color: {net < 0n ? 'var(--deny)' : 'var(--approve)'}"
+					style="color: {netBad ? 'var(--deny)' : 'var(--approve)'}"
 				>
-					Net
+					{overBudget ? 'Over budget' : 'Net'}
 				</p>
-				<span style="color: {net < 0n ? 'var(--deny)' : 'var(--approve)'}">
+				<span style="color: {netBad ? 'var(--deny)' : 'var(--approve)'}">
 					<Money minor={net} {currency} sign block class="mt-0.5 text-[18px] font-semibold" />
 				</span>
 				{#if prevNet !== 0n && net !== prevNet}
