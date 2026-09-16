@@ -112,43 +112,56 @@
 		{/if}
 		<div
 			data-swipe-content
-			class="relative z-10 flex items-center gap-3 px-4 py-3.5"
+			class="relative z-10 px-4 py-3.5"
 			style="background: var(--surface); touch-action: pan-y"
 		>
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px]"
-				style="background: color-mix(in oklab, var(--approve) 18%, transparent)"
-			>
-				<ArrowUpRight class="h-4 w-4" style="color: var(--approve)" />
-			</span>
-			<div class="min-w-0 flex-1">
-				<p class="text-[16px]" style="color: var(--ink)">{e.source}</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">
-					{e.memberName} · {e.cadence ?? fmtDate(e.receivedAt)}
-				</p>
+			<div class="flex items-center gap-3">
+				<span
+					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px]"
+					style="background: color-mix(in oklab, var(--approve) 18%, transparent)"
+				>
+					<ArrowUpRight class="h-4 w-4" style="color: var(--approve)" />
+				</span>
+				<div class="min-w-0 flex-1">
+					<p class="text-[16px]" style="color: var(--ink)">{e.source}</p>
+					<p class="text-[13px]" style="color: var(--ink-3)">
+						{e.memberName} · {e.cadence ?? fmtDate(e.receivedAt)}
+					</p>
+				</div>
+				<span class="shrink-0" style="color: var(--approve)">
+					<Money
+						minor={e.amountMinor}
+						currency={e.currency}
+						sign
+						class="text-[16px] font-semibold"
+					/>
+				</span>
 			</div>
-			<span style="color: var(--approve)">
-				<Money minor={e.amountMinor} currency={e.currency} sign class="text-[16px] font-semibold" />
-			</span>
+			<!--
+				Actions on their own line, lower left, exactly as a recurring rule
+				carries them. Sitting them after the amount pushed every figure off the
+				right edge by a different distance, so a column of money no longer lined
+				up — the one thing this app does not let slide.
+			-->
 			{#if e.mine}
-				<button
-					onclick={() => startEdit(e)}
-					class="press ml-1 inline-flex items-center gap-1"
-					style="color: var(--ink-2)"
-					aria-label="Edit"
-				>
-					<Pencil class="h-3.5 w-3.5" />
-				</button>
-				<form
-					method="POST"
-					action="?/remove"
-					use:submit={{ confirm: 'Remove this income entry?', success: 'Income removed' }}
-				>
-					<input type="hidden" name="incomeId" value={e.id} />
-					<button class="press ml-0.5" style="color: var(--ink-3)" aria-label="Remove">
-						<Trash2 class="h-4 w-4" />
+				<div class="mt-2.5 flex items-center gap-4 text-[13px]">
+					<button
+						onclick={() => startEdit(e)}
+						class="press inline-flex items-center gap-1"
+						style="color: var(--ink-2)"
+					>
+						<Pencil class="h-3.5 w-3.5" /> Edit
 					</button>
-				</form>
+					<form
+						method="POST"
+						action="?/remove"
+						use:submit={{ confirm: 'Remove this income entry?', success: 'Income removed' }}
+						class="ml-auto"
+					>
+						<input type="hidden" name="incomeId" value={e.id} />
+						<button class="press" style="color: var(--deny)">Remove</button>
+					</form>
+				</div>
 			{/if}
 		</div>
 		{#if editing === e.id}
@@ -199,11 +212,13 @@
 <div class="space-y-4">
 	<div class="flex items-center justify-between px-1 pt-1">
 		<h1 class="text-[28px]">Income</h1>
+		<!-- "+ New" like Recurring and Buckets: the same act on the same kind of
+		     page should not be named three different things. -->
 		<button
 			onclick={() => (showNew = !showNew)}
 			class="btn {showNew ? 'btn-ghost' : 'btn-tint'} px-4 py-2 text-[14px]"
 		>
-			{showNew ? 'Cancel' : 'Add income'}
+			{showNew ? 'Cancel' : '+ New'}
 		</button>
 	</div>
 
@@ -294,8 +309,11 @@
 				aria-expanded={showPast}
 			>
 				<span class="section-label">Past income</span>
-				<span class="flex items-center gap-1 text-[13px]" style="color: var(--ink-3)">
-					{past.length}
+				<span class="flex items-center gap-1.5" style="color: var(--ink-3)">
+					<!-- The count chip every list on every page uses. -->
+					<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+						>{past.length}</span
+					>
 					<ChevronDown
 						class="h-4 w-4 transition-transform duration-200 {showPast ? 'rotate-180' : ''}"
 					/>
