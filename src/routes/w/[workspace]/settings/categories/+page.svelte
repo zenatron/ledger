@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
-	import { ChevronLeft, Pencil, Plus, Shapes, Trash2, X } from '@lucide/svelte';
+	import { ChevronLeft, Pencil, Shapes, Trash2 } from '@lucide/svelte';
 
 	let { data, form } = $props();
 	let slug = $derived(page.params.workspace);
@@ -180,36 +180,63 @@
 	>
 		<ChevronLeft class="h-4 w-4" /> Settings
 	</a>
-	<h1 class="px-1 text-[28px]">Categories</h1>
-
-	<!-- Built-in categories -->
-	<div class="card overflow-hidden">
-		<div class="flex items-center justify-between px-4 pt-4 pb-2">
-			<h2
-				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
-				style="color: var(--ink)"
+	<!--
+		The add control belongs in the masthead, where every other list on every
+		other page keeps it — it used to sit at the bottom of the page as a card
+		pretending to be a row, below a built-in list nobody can edit.
+	-->
+	<div class="flex items-center justify-between px-1">
+		<h1 class="text-[28px]">Categories</h1>
+		{#if owner}
+			<button
+				onclick={() => (showNew = !showNew)}
+				class="btn {showNew ? 'btn-ghost' : 'btn-tint'} px-4 py-2 text-[14px]"
 			>
-				<Shapes class="h-4 w-4" style="color: var(--ws-accent)" /> Built-in
-			</h2>
-			<span class="text-[13px]" style="color: var(--ink-3)"
-				>{data.builtIn.length} categor{data.builtIn.length === 1 ? 'y' : 'ies'}</span
-			>
-		</div>
-		{#each data.builtIn as c, i (c.id)}
-			<div
-				class="flex items-center gap-3 px-4 py-2.5"
-				style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}
-			>
-				<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
-				<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
-				<span class="text-[15px]" style="color: var(--ink-3)">
-					{c.purchases > 0 ? `${c.purchases} purchase${c.purchases === 1 ? '' : 's'}` : 'unused'}
-				</span>
-			</div>
-		{/each}
+				{showNew ? 'Cancel' : '+ New'}
+			</button>
+		{/if}
 	</div>
 
-	<!-- Custom categories -->
+	{#if owner && showNew}
+		<form method="POST" action="?/create" use:submit class="card space-y-3 p-4">
+			<input
+				name="name"
+				bind:value={newName}
+				maxlength="60"
+				required
+				placeholder="Category name"
+				aria-label="Category name"
+				class="field w-full text-[16px]"
+			/>
+			<input type="hidden" name="icon" value={newIcon} />
+			<div class="flex flex-wrap gap-1.5">
+				{#each EMOJIS as e (e)}
+					<button
+						type="button"
+						onclick={() => pickIcon(e)}
+						class="press grid h-8 w-8 place-items-center rounded-md text-[18px] leading-none transition-colors {newIcon ===
+						e
+							? 'ring-1'
+							: ''}"
+						style={newIcon === e
+							? 'box-shadow: inset 0 0 0 1.5px var(--ws-accent); background: color-mix(in oklab, var(--ws-accent) 12%, transparent)'
+							: ''}
+					>
+						{e}
+					</button>
+				{/each}
+			</div>
+			{#if form && 'error' in form && form.error}
+				<p class="text-[13px]" style="color: var(--deny)">{form.error}</p>
+			{/if}
+			<button class="btn btn-accent px-4 py-2 text-[14px]">Create category</button>
+		</form>
+	{/if}
+
+	<!--
+		Custom first: it is the only list on this page anyone can change, and it was
+		sitting under twelve built-in rows that never move.
+	-->
 	<div class="card overflow-hidden">
 		<div class="flex items-center justify-between px-4 pt-4 pb-2">
 			<h2
@@ -218,14 +245,16 @@
 			>
 				<Pencil class="h-4 w-4" style="color: var(--ws-accent)" /> Custom
 			</h2>
-			<span class="text-[13px]" style="color: var(--ink-3)"
-				>{data.custom.length} categor{data.custom.length === 1 ? 'y' : 'ies'}</span
+			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+				>{data.custom.length}</span
 			>
 		</div>
 		{#if data.custom.length === 0 && !showNew}
 			<div class="px-4 pb-4">
 				<p class="text-[14px]" style="color: var(--ink-3)">
-					None yet. Add one below to extend the category list everywhere.
+					{owner
+						? 'None yet. Add one to extend the category list everywhere.'
+						: 'None yet. Only the workspace owner can add them.'}
 				</p>
 			</div>
 		{/if}
@@ -297,7 +326,7 @@
 							<button
 								class="press grid h-7 w-7 place-items-center rounded-full"
 								aria-label="Remove {c.name}"
-								style="color: var(--ink-4)"
+								style="color: var(--deny)"
 							>
 								<Trash2 class="h-3.5 w-3.5" />
 							</button>
@@ -308,72 +337,30 @@
 		{/each}
 	</div>
 
-	<!-- Add new category -->
-	{#if owner}
-		{#if showNew}
-			<form method="POST" action="?/create" use:submit class="card space-y-3 p-4">
-				<div class="flex items-center justify-between">
-					<p class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
-						<Plus class="h-4 w-4" style="color: var(--ws-accent)" /> New category
-					</p>
-					<button
-						type="button"
-						onclick={() => (showNew = false)}
-						class="press grid h-7 w-7 place-items-center rounded-full"
-						style="color: var(--ink-3)"
-					>
-						<X class="h-4 w-4" />
-					</button>
-				</div>
-				<input
-					name="name"
-					bind:value={newName}
-					maxlength="60"
-					required
-					placeholder="Category name"
-					aria-label="Category name"
-					class="field w-full text-[16px]"
-				/>
-				<input type="hidden" name="icon" value={newIcon} />
-				<div class="flex flex-wrap gap-1.5">
-					{#each EMOJIS as e (e)}
-						<button
-							type="button"
-							onclick={() => pickIcon(e)}
-							class="press grid h-8 w-8 place-items-center rounded-md text-[18px] leading-none transition-colors {newIcon ===
-							e
-								? 'ring-1'
-								: ''}"
-							style={newIcon === e
-								? 'box-shadow: inset 0 0 0 1.5px var(--ws-accent); background: color-mix(in oklab, var(--ws-accent) 12%, transparent)'
-								: ''}
-						>
-							{e}
-						</button>
-					{/each}
-				</div>
-				{#if form && 'error' in form && form.error}
-					<p class="text-[13px]" style="color: var(--deny)">{form.error}</p>
-				{/if}
-				<button class="btn btn-accent px-4 py-2 text-[14px]">Create category</button>
-			</form>
-		{:else}
-			<button
-				onclick={() => (showNew = true)}
-				class="press card flex w-full items-center gap-3 p-4 text-left"
+	<!-- Built-in: the fixed list, for reference. -->
+	<div class="card overflow-hidden">
+		<div class="flex items-center justify-between px-4 pt-4 pb-2">
+			<h2
+				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
+				style="color: var(--ink)"
 			>
-				<span
-					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-					style="background: color-mix(in oklab, var(--ws-accent) 14%, var(--surface))"
-				>
-					<Plus class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
+				<Shapes class="h-4 w-4" style="color: var(--ws-accent)" /> Built-in
+			</h2>
+			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+				>{data.builtIn.length}</span
+			>
+		</div>
+		{#each data.builtIn as c, i (c.id)}
+			<div
+				class="flex items-center gap-3 px-4 py-2.5"
+				style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}
+			>
+				<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
+				<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
+				<span class="text-[15px]" style="color: var(--ink-3)">
+					{c.purchases > 0 ? `${c.purchases} purchase${c.purchases === 1 ? '' : 's'}` : 'unused'}
 				</span>
-				<span class="text-[15px] font-medium" style="color: var(--ink)">Add a category</span>
-			</button>
-		{/if}
-	{:else}
-		<p class="px-1 text-[13px]" style="color: var(--ink-3)">
-			Only the workspace owner can manage categories.
-		</p>
-	{/if}
+			</div>
+		{/each}
+	</div>
 </div>
