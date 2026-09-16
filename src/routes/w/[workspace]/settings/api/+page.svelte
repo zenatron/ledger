@@ -103,8 +103,8 @@
 					class="btn btn-ghost shrink-0 px-3 py-2 text-[13px]">Copy</button
 				>
 			</div>
-			<p class="mt-1.5 text-[12px]" style="color: var(--ink-3)">
-				Authenticate with a token below as <code>Authorization: Bearer …</code>.
+			<p class="mt-1.5 text-[13px] leading-relaxed" style="color: var(--ink-3)">
+				Your assistant will ask for a token when you add this URL. Create one below and paste it in.
 			</p>
 		</div>
 	</div>
@@ -176,12 +176,16 @@
 			</label>
 
 			<fieldset>
-				<legend class="section-label mb-2">Permissions</legend>
-				<div class="space-y-2">
-					{#each SCOPES as s (s.id)}
+				<legend class="section-label mb-1.5">Permissions</legend>
+				<!--
+					One quiet panel of hairline-separated rows, like every other list in
+					the app. Three separately outlined boxes read as three competing
+					cards, which put more weight on the chrome than on the choice.
+				-->
+				<div class="overflow-hidden rounded-[10px]" style="background: var(--surface-2)">
+					{#each SCOPES as s, i (s.id)}
 						<label
-							class="flex cursor-pointer items-start gap-3 rounded-[10px] px-3 py-2.5"
-							style="box-shadow: inset 0 0 0 1px var(--hairline)"
+							class="flex cursor-pointer items-start gap-3 px-3.5 py-3 {i > 0 ? 'hairline' : ''}"
 						>
 							<input
 								type="checkbox"
@@ -195,7 +199,9 @@
 								<span class="block text-[15px] font-medium" style="color: var(--ink)"
 									>{s.label}</span
 								>
-								<span class="block text-[13px]" style="color: var(--ink-3)">{s.hint}</span>
+								<span class="mt-0.5 block text-[13px] leading-relaxed" style="color: var(--ink-3)"
+									>{s.hint}</span
+								>
 							</span>
 						</label>
 					{/each}
@@ -254,11 +260,7 @@
 							}}
 						>
 							<input type="hidden" name="tokenId" value={t.id} />
-							<button
-								class="press rounded-[var(--r-sm)] px-3 py-2 text-[13px] font-medium"
-								style="color: var(--deny); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--deny) 35%, transparent)"
-								>Revoke</button
-							>
+							<button class="btn btn-danger px-3.5 py-2 text-[13px]">Revoke</button>
 						</form>
 					</div>
 				{/each}
