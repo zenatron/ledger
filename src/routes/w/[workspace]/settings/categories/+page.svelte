@@ -309,9 +309,7 @@
 				>
 					<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
 					<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
-					<span class="text-[15px]" style="color: var(--ink-3)">
-						{c.purchases > 0 ? `${c.purchases}` : 'unused'}
-					</span>
+					<span class="num text-[15px]" style="color: var(--ink-3)">{c.purchases}</span>
 					{#if owner}
 						<button
 							onclick={() => startEdit(c)}
@@ -357,9 +355,10 @@
 			>
 				<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
 				<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
-				<span class="text-[15px]" style="color: var(--ink-3)">
-					{c.purchases > 0 ? `${c.purchases} purchase${c.purchases === 1 ? '' : 's'}` : 'unused'}
-				</span>
+				<!-- Both lists count the same way: the number alone, tabular so the
+			     column lines up. "12 purchases" here and a bare "12" there was the
+			     same fact in two formats. -->
+				<span class="num text-[15px]" style="color: var(--ink-3)">{c.purchases}</span>
 			</div>
 		{/each}
 	</div>

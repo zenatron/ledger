@@ -865,7 +865,10 @@
 										class="ml-auto"
 									>
 										<input type="hidden" name="ruleId" value={r.id} />
-										<button class="btn btn-danger px-3 py-1.5 text-[13px]">Delete</button>
+										<!-- Textual, like Pause and End beside it: inside a row, the
+									     actions are words. The danger button is for the standalone
+									     controls that end something whole. -->
+										<button class="press" style="color: var(--deny)">Delete</button>
 									</form>
 								</div>
 							{/if}
