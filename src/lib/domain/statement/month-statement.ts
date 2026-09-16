@@ -132,8 +132,8 @@ export function narrateMonth(
 		const behind = fmt(-s.netMinor);
 		lead =
 			f.savingsMinor > 0n
-				? `${fmt(f.incomeMinor)} came in and ${fmt(f.spentMinor)} went out. After ${fmt(f.savingsMinor)} set aside, you're ${behind} behind ${openerLower}.`
-				: `${fmt(f.incomeMinor)} came in and ${fmt(f.spentMinor)} went out, leaving you ${behind} behind ${openerLower}.`;
+				? `${fmt(f.incomeMinor)} came in and ${fmt(f.spentMinor)} went out. After ${fmt(f.savingsMinor)} set aside, you're ${behind} over spent ${openerLower}.`
+				: `${fmt(f.incomeMinor)} came in and ${fmt(f.spentMinor)} went out, leaving you ${behind} over spent ${openerLower}.`;
 	} else if (s.status === 'even') {
 		tone = 'even';
 		lead = `${fmt(f.incomeMinor)} in, ${fmt(f.spentMinor)} out, ${fmt(f.savingsMinor)} saved. You broke exactly even ${openerLower}.`;
