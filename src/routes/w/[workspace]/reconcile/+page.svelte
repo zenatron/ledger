@@ -357,10 +357,14 @@
 						{/each}
 					</dl>
 
-					<p class="section-label mt-4">
-						{scanRows.length}
-						{scanRows.length === 1 ? 'transaction' : 'transactions'}
-					</p>
+					<div class="mt-4 flex items-center justify-between">
+						<p class="section-label">
+							{scanRows.length === 1 ? 'Transaction' : 'Transactions'}
+						</p>
+						<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+							>{scanRows.length}</span
+						>
+					</div>
 					<div class="mt-1 max-h-64 overflow-y-auto">
 						{#each scanRows as r, i (i)}
 							<div class="flex items-baseline gap-2 py-1.5 text-[13px] {i ? 'hairline' : ''}">

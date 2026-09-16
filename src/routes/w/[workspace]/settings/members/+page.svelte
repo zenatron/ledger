@@ -243,12 +243,17 @@
 	{/if}
 
 	<div class="card p-5">
-		<h2
-			class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
-			style="color: var(--ink)"
-		>
-			<Users class="h-4 w-4" style="color: var(--ws-accent)" /> People
-		</h2>
+		<div class="flex items-center justify-between gap-3">
+			<h2
+				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
+				style="color: var(--ink)"
+			>
+				<Users class="h-4 w-4" style="color: var(--ws-accent)" /> People
+			</h2>
+			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+				>{data.members.length}</span
+			>
+		</div>
 		<div class="mt-3">
 			{#each data.members as m (m.id)}
 				<!-- data-member scopes a row to one person for the e2e helpers. -->
@@ -281,7 +286,8 @@
 					<Mail class="h-4 w-4" style="color: var(--ws-accent)" /> Invites
 				</h2>
 				<form method="POST" action="?/invite" use:submit={{ success: 'Invite created' }}>
-					<button class="btn btn-tint px-4 py-1.5 text-[13px]">New code</button>
+					<!-- "+ New …", like every other add control in the app. -->
+					<button class="btn btn-tint px-4 py-1.5 text-[13px]">+ New code</button>
 				</form>
 			</div>
 			{#if data.invites.length === 0}

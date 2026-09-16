@@ -898,8 +898,7 @@
 						{#if f.breakdown.upcomingBillsEstimated}
 							<!-- Said once, under the figures, rather than on the row itself. -->
 							<p class="mt-2.5 text-[12px] leading-relaxed" style="color: var(--ink-3)">
-								The dotted figure is an estimate. Some of those bills ask you to confirm the real
-								price, so it's what they came to last time.
+								The dotted figure is an estimate. Some bills ask you to confirm the final amount.
 							</p>
 						{/if}
 						{#if runway && runwayHasSignal}
@@ -939,7 +938,8 @@
 										{runwaySummary}. Projected from what repeats each month. Nothing here is spent
 										yet.
 										{#if runway.months.some((m) => m.estimated)}
-											A dotted figure includes a bill that still asks for its real price.
+											Amounts are estimated from previous billing history and expected recurring
+											purchases.
 										{/if}
 									</p>
 								{/if}
@@ -1285,9 +1285,14 @@
 		</div>
 	{:else}
 		{#if pending.length > 0}
-			<p class="section-label mt-2 mb-1 px-1" style="color: var(--pending)">
-				Awaiting a decision · {pending.length}
-			</p>
+			<div class="mt-2 mb-1 flex items-center justify-between px-1">
+				<p class="section-label" style="color: var(--pending)">Awaiting a decision</p>
+				<span
+					class="chip num"
+					style="color: var(--pending); background: color-mix(in oklab, var(--pending) 12%, transparent)"
+					>{pending.length}</span
+				>
+			</div>
 			<div class="mb-6">
 				{#each pending as p, i (p.id)}
 					{@render row(p, i === pending.length - 1)}
@@ -1298,9 +1303,14 @@
 		{#if showConfirm}
 			<!-- Green like the APPROVED chip these rows carry: greenlit, they just
 			     need the real amount recorded. -->
-			<p class="section-label mt-2 mb-1 px-1" style="color: var(--approve)">
-				Confirm what you paid · {confirmItems.length}
-			</p>
+			<div class="mt-2 mb-1 flex items-center justify-between px-1">
+				<p class="section-label" style="color: var(--approve)">Confirm what you paid</p>
+				<span
+					class="chip num"
+					style="color: var(--approve); background: color-mix(in oklab, var(--approve) 12%, transparent)"
+					>{confirmItems.length}</span
+				>
+			</div>
 			<div class="mb-6">
 				{#each confirmItems as p, i (p.id)}
 					{@render row(p, i === confirmItems.length - 1)}
@@ -1310,9 +1320,14 @@
 
 		{#if showSleeping}
 			<!-- Seal-purple: the temporal-lock tone shared with sealed gifts. -->
-			<p class="section-label mt-2 mb-1 px-1" style="color: var(--seal)">
-				Sleeping on it · {sleepingItems.length}
-			</p>
+			<div class="mt-2 mb-1 flex items-center justify-between px-1">
+				<p class="section-label" style="color: var(--seal)">Sleeping on it</p>
+				<span
+					class="chip num"
+					style="color: var(--seal); background: color-mix(in oklab, var(--seal) 12%, transparent)"
+					>{sleepingItems.length}</span
+				>
+			</div>
 			<div class="mb-6">
 				{#each sleepingItems as p, i (p.id)}
 					<a

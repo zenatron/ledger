@@ -419,9 +419,14 @@
 
 	{#if proposed.length > 0}
 		<!-- Green, like the APPROVED chip: these are found, they just need a nod. -->
-		<p class="section-label mt-7 mb-1 px-1" style="color: var(--approve)">
-			Looks like a match · {proposed.length}
-		</p>
+		<div class="mt-7 mb-1 flex items-center justify-between px-1">
+			<p class="section-label" style="color: var(--approve)">Looks like a match</p>
+			<span
+				class="chip num"
+				style="color: var(--approve); background: color-mix(in oklab, var(--approve) 12%, transparent)"
+				>{proposed.length}</span
+			>
+		</div>
 		<div class="rule">
 			{#each proposed as l, i (l.id)}
 				{@render lineRow(l, i === proposed.length - 1)}
@@ -430,9 +435,14 @@
 	{/if}
 
 	{#if open.length > 0}
-		<p class="section-label mt-7 mb-1 px-1" style="color: var(--pending)">
-			Nothing matched · {open.length}
-		</p>
+		<div class="mt-7 mb-1 flex items-center justify-between px-1">
+			<p class="section-label" style="color: var(--pending)">Nothing matched</p>
+			<span
+				class="chip num"
+				style="color: var(--pending); background: color-mix(in oklab, var(--pending) 12%, transparent)"
+				>{open.length}</span
+			>
+		</div>
 		<div class="rule">
 			{#each open as l, i (l.id)}
 				{@render lineRow(l, i === open.length - 1)}
@@ -441,7 +451,12 @@
 	{/if}
 
 	{#if settled.length > 0}
-		<p class="section-label mt-7 mb-1 px-1">Accounted for · {settled.length}</p>
+		<div class="mt-7 mb-1 flex items-center justify-between px-1">
+			<p class="section-label">Accounted for</p>
+			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+				>{settled.length}</span
+			>
+		</div>
 		<div class="rule">
 			{#each settled as l, i (l.id)}
 				{@render lineRow(l, i === settled.length - 1)}
