@@ -238,7 +238,13 @@
 		sitting under twelve built-in rows that never move.
 	-->
 	<div class="card overflow-hidden">
-		<div class="flex items-center justify-between px-4 pt-4 pb-2">
+		<!--
+			The header mirrors a row: the caption sits in the same 40px column the
+			counts do, and the two spacers stand in for the rename and remove buttons
+			so it lands over the figures rather than over the icons. A bare column of
+			numbers doesn't say what it counts.
+		-->
+		<div class="flex items-center gap-3 px-4 pt-4 pb-2">
 			<h2
 				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
 				style="color: var(--ink)"
@@ -248,6 +254,15 @@
 			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
 				>{data.custom.length}</span
 			>
+			<!-- No caption over an empty list: a column header with no column under it
+			     reads as a heading for the "None yet" line. -->
+			{#if data.custom.length > 0}
+				<span class="section-label ml-auto w-10 text-right">Bought</span>
+				{#if owner}
+					<span class="w-7" aria-hidden="true"></span>
+					<span class="w-7" aria-hidden="true"></span>
+				{/if}
+			{/if}
 		</div>
 		{#if data.custom.length === 0 && !showNew}
 			<div class="px-4 pb-4">
@@ -309,7 +324,9 @@
 				>
 					<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
 					<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
-					<span class="num text-[15px]" style="color: var(--ink-3)">{c.purchases}</span>
+					<span class="num w-10 text-right text-[15px]" style="color: var(--ink-3)"
+						>{c.purchases}</span
+					>
 					{#if owner}
 						<button
 							onclick={() => startEdit(c)}
@@ -337,7 +354,7 @@
 
 	<!-- Built-in: the fixed list, for reference. -->
 	<div class="card overflow-hidden">
-		<div class="flex items-center justify-between px-4 pt-4 pb-2">
+		<div class="flex items-center gap-3 px-4 pt-4 pb-2">
 			<h2
 				class="flex items-center gap-2 font-[family-name:var(--font-sans)] text-[16px] font-semibold tracking-normal"
 				style="color: var(--ink)"
@@ -347,6 +364,7 @@
 			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
 				>{data.builtIn.length}</span
 			>
+			<span class="section-label ml-auto w-10 text-right">Bought</span>
 		</div>
 		{#each data.builtIn as c, i (c.id)}
 			<div
@@ -355,10 +373,12 @@
 			>
 				<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
 				<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
-				<!-- Both lists count the same way: the number alone, tabular so the
-			     column lines up. "12 purchases" here and a bare "12" there was the
-			     same fact in two formats. -->
-				<span class="num text-[15px]" style="color: var(--ink-3)">{c.purchases}</span>
+				<!-- Both lists count the same way: the number alone, tabular and in a
+			     fixed column so it lines up under the caption. "12 purchases" here
+			     and a bare "12" there was the same fact in two formats. -->
+				<span class="num w-10 text-right text-[15px]" style="color: var(--ink-3)"
+					>{c.purchases}</span
+				>
 			</div>
 		{/each}
 	</div>
