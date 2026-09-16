@@ -133,12 +133,16 @@
 				that depresses under the thumb and shows nothing is a small lie about
 				where the information is.
 			-->
+			{@const both = d.inMinor > 0n && d.outMinor > 0n}
 			<svelte:element
 				this={busy ? 'button' : 'div'}
 				role={busy ? 'button' : undefined}
 				tabindex={busy ? 0 : undefined}
 				onclick={busy ? () => (openDay = d.day) : undefined}
-				class="flex aspect-square flex-col items-center justify-start rounded-[10px] pt-1.5 {busy
+				aria-label={busy
+					? `${d.day}: ${d.outMinor > 0n ? `${formatMinor(d.outMinor, currency)} out` : ''}${both ? ', ' : ''}${d.inMinor > 0n ? `${formatMinor(d.inMinor, currency)} in` : ''}`
+					: undefined}
+				class="relative flex aspect-square flex-col items-center justify-start rounded-[10px] pt-1.5 {busy
 					? 'press'
 					: ''}"
 				style="background: {busy ? 'var(--surface-2)' : 'transparent'}; box-shadow: {isToday
@@ -150,18 +154,32 @@
 					style="color: {isToday ? 'var(--ws-accent)' : busy ? 'var(--ink-2)' : 'var(--ink-3)'}"
 					>{d.day}</span
 				>
+				<!--
+					One figure to a cell. A day that both pays a bill and receives a
+					salary used to stack two amounts under the date in a square the width
+					of a thumbnail, and the two competed at exactly the size where neither
+					could be read at a glance. Money going out is what a month is planned
+					around, so it keeps the figure; money coming in on the same day is a
+					dot in the corner, and both exact numbers are a tap away in the sheet.
+				-->
 				{#if d.outMinor > 0n}
 					<span class="num mt-0.5 text-[11px] leading-none font-semibold" style="color: var(--ink)">
 						{symbol}{whole(d.outMinor)}
 					</span>
-				{/if}
-				{#if d.inMinor > 0n}
+				{:else if d.inMinor > 0n}
 					<span
 						class="num mt-0.5 text-[11px] leading-none font-semibold"
 						style="color: var(--approve)"
 					>
 						+{symbol}{whole(d.inMinor)}
 					</span>
+				{/if}
+				{#if both}
+					<span
+						class="absolute top-1.5 right-1.5 h-[5px] w-[5px] rounded-full"
+						style="background: var(--approve)"
+						aria-hidden="true"
+					></span>
 				{/if}
 				{#if d.outMinor === 0n && d.inMinor === 0n && busy}
 					<!-- Something to decide, but no money moving. A dot, not a figure. -->
@@ -174,6 +192,19 @@
 			</svelte:element>
 		{/each}
 	</div>
+
+	{#if data.days.some((d) => d.inMinor > 0n && d.outMinor > 0n)}
+		<!-- Said once, under the grid, rather than guessed at: a green dot in the
+		     corner of a day means money arrives that day too. -->
+		<p class="mt-2.5 flex items-center gap-1.5 px-1 text-[11px]" style="color: var(--ink-3)">
+			<span
+				class="h-[5px] w-[5px] shrink-0 rounded-full"
+				style="background: var(--approve)"
+				aria-hidden="true"
+			></span>
+			money in that day as well
+		</p>
+	{/if}
 
 	{#if data.month.inMinor === 0n && data.month.outMinor === 0n && data.days.every((d) => d.entries.length === 0)}
 		<p class="mt-6 px-1 text-[14px] leading-relaxed" style="color: var(--ink-3)">
