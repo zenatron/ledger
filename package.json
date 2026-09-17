@@ -27,9 +27,9 @@
 		"test:e2e": "playwright test",
 		"seed": "bun scripts/seed.ts",
 		"test:coverage": "vitest run --coverage",
-		"docker:build": "docker build --platform linux/amd64 -t zenatron/ledger:latest -t zenatron/ledger:$npm_package_version .",
+		"docker:build": "docker buildx build --platform linux/amd64 --load -t zenatron/ledger:latest -t zenatron/ledger:$npm_package_version .",
 		"docker:push": "docker push zenatron/ledger:latest && docker push zenatron/ledger:$npm_package_version",
-		"docker:release": "bun run docker:build && bun run docker:push",
+		"docker:release": "docker buildx build --platform linux/amd64 --push -t zenatron/ledger:latest -t zenatron/ledger:$npm_package_version .",
 		"demo:seed": "bun scripts/demo-seed.ts",
 		"demo:build": "bun scripts/demo-build.ts && DEMO=1 vite build && bun scripts/demo-finalize.ts",
 		"demo:preview": "bun run demo:build && bunx serve build-demo -l 5188"
