@@ -50,7 +50,7 @@ export async function createSession(
 export async function validateSession(
 	db: Db,
 	sessionId: string
-): Promise<{ session: SessionRow; user: SessionUser } | null> {
+): Promise<{ session: SessionRow; user: SessionUser; renewed: boolean } | null> {
 	const rows = await db
 		.select({ session, user })
 		.from(session)
@@ -70,8 +70,9 @@ export async function validateSession(
 			.update(session)
 			.set({ expiresAt: hit.session.expiresAt })
 			.where(eq(session.id, sessionId));
+		return { ...hit, renewed: true };
 	}
-	return hit;
+	return { ...hit, renewed: false };
 }
 
 export async function destroySession(db: Db, sessionId: string): Promise<void> {

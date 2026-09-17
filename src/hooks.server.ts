@@ -239,6 +239,9 @@ export const init: ServerInit = async () => {
 };
 
 const WORKSPACE_PATH = /^\/w\/([^/]+)(?:\/|$)/;
+/** A last path segment with an extension (`icon.png`, `export.csv`) — the shape
+ *  extension-keyed proxy caches store without regard to cookies. */
+const FILE_LIKE_PATH = /\.[A-Za-z0-9]+$/;
 
 /**
  * Single authorization layer: resolves session → user → (for /w/ routes)
@@ -283,12 +286,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 		// so anything else is junk and shouldn't cost a database round trip.
 		const wellFormed = sid.length <= 128 && /^[A-Za-z0-9_-]+$/.test(sid);
 		const hit = wellFormed ? await validateSession(getDb(), sid) : null;
+		// The session cookie is written as rarely as possible, and never on a URL
+		// that looks like a file. A shared cache in front of the app (Nginx Proxy
+		// Manager's "Cache Assets" is the one that bit us) stores .png/.js/.ico
+		// responses per URL, Set-Cookie included, and replays them to everyone:
+		// iOS asks for /apple-touch-icon.png on its own, so a signed-in 404 there
+		// handed one person's sid to the next phone, and a cleared one logged
+		// every phone out. Ordinary requests carry no Set-Cookie at all now.
+		const cookieSafe = !FILE_LIKE_PATH.test(event.url.pathname);
 		if (hit) {
 			event.locals.user = hit.user;
 			event.locals.session = hit.session;
-			// Keep the cookie's expiry in step with sliding renewal.
-			setSessionCookie(event.cookies, hit.session.id, hit.session.expiresAt);
-		} else {
+			// Keep the cookie's expiry in step with sliding renewal — only when it
+			// actually moved, which is at most once per half-TTL.
+			if (hit.renewed && cookieSafe) {
+				setSessionCookie(event.cookies, hit.session.id, hit.session.expiresAt);
+			}
+		} else if (cookieSafe) {
 			clearSessionCookie(event.cookies);
 		}
 	}

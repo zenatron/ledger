@@ -20,6 +20,24 @@ export const GET: RequestHandler = async ({ url, cookies, request, getClientAddr
 		cookies.delete(name, { path: '/' });
 	}
 	if (!state || !nonce || !codeVerifier) {
+		// Cookie names only, never values — the flow cookies are single-use
+		// secrets, and sid is a credential. An empty list means the request
+		// carried no cookies at all; the flow legs landed in different jars.
+		console.log(
+			JSON.stringify({
+				level: 'warn',
+				msg: 'oidc: callback arrived without its flow cookies',
+				missing: [!state && 'state', !nonce && 'nonce', !codeVerifier && 'verifier'].filter(
+					Boolean
+				),
+				cookieNames:
+					request.headers
+						.get('cookie')
+						?.split(';')
+						.map((c) => c.trim().split('=')[0]) ?? [],
+				ua: request.headers.get('user-agent')?.slice(0, 140) ?? null
+			})
+		);
 		error(400, 'Login flow expired. Please try again');
 	}
 
