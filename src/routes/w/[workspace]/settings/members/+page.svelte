@@ -369,21 +369,10 @@
 
 			<div class="px-5 pb-2">
 				{#if !disabled}
-					<!-- Role: the one line that says what they are, and the way to change it. -->
-					<form
-						method="POST"
-						action="?/setMemberRole"
-						use:submit={{
-							success: m.role === 'owner' ? 'Now a member' : 'Now an owner',
-							// Stepping yourself down is the one move you cannot undo alone.
-							confirm:
-								self && m.role === 'owner'
-									? 'Give up owner access? Another owner would have to give it back.'
-									: undefined
-						}}
-						class="hairline flex items-center justify-between gap-3 py-3"
-					>
-						<input type="hidden" name="memberId" value={m.id} />
+					<!-- Role: the one line that says what they are, and the way to change
+				     it — except when it is you, since an owner steps down only by
+				     another owner's hand, never their own. -->
+					<div class="hairline flex items-center justify-between gap-3 py-3">
 						<span class="min-w-0">
 							<span class="block text-[15px]" style="color: var(--ink)">Owner access</span>
 							<span class="block text-[12px]" style="color: var(--ink-3)">
@@ -392,14 +381,28 @@
 									: 'Can use the workspace, not manage it'}
 							</span>
 						</span>
-						<button
-							name="owner"
-							value={m.role === 'owner' ? 'false' : 'true'}
-							class="btn btn-ghost shrink-0 px-3.5 py-1.5 text-[13px]"
-						>
-							{m.role === 'owner' ? 'Make member' : 'Make owner'}
-						</button>
-					</form>
+						{#if self && m.role === 'owner'}
+							<!-- Not offered for yourself — the server refuses it too. -->
+							<span class="shrink-0 text-[12px]" style="color: var(--ink-3)">
+								Another owner steps you down
+							</span>
+						{:else}
+							<form
+								method="POST"
+								action="?/setMemberRole"
+								use:submit={{ success: m.role === 'owner' ? 'Now a member' : 'Now an owner' }}
+							>
+								<input type="hidden" name="memberId" value={m.id} />
+								<button
+									name="owner"
+									value={m.role === 'owner' ? 'false' : 'true'}
+									class="btn btn-ghost shrink-0 px-3.5 py-1.5 text-[13px]"
+								>
+									{m.role === 'owner' ? 'Make member' : 'Make owner'}
+								</button>
+							</form>
+						{/if}
+					</div>
 
 					<!-- Approval policy: summarized, then edited in place. -->
 					<div class="hairline py-3">

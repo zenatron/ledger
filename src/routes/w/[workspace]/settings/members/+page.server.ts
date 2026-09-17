@@ -108,9 +108,10 @@ export const actions: Actions = {
 	 * permanently unadministrable.
 	 *
 	 * There is no separate "transfer" action because it would be this one twice:
-	 * promote whoever is taking over, then step yourself down. Allowing several
+	 * promote whoever is taking over, then they step you down. Allowing several
 	 * owners at once is what makes the handover safe — at no point is there
-	 * nobody in charge.
+	 * nobody in charge — and making the demotion theirs, not yours, keeps a
+	 * workspace from changing hands in one sitting.
 	 */
 	setMemberRole: async ({ locals, request }) => {
 		if (locals.member!.role !== 'owner') error(403, 'Only an owner can change roles');
@@ -127,6 +128,15 @@ export const actions: Actions = {
 		// authority to someone who cannot use it — restore them first.
 		if (target.member.status !== 'active') {
 			return fail(400, { error: 'Restore this member before changing their role' });
+		}
+
+		// Not even your own role: promote the person taking over and let them
+		// return the favour. A demotion you perform yourself is how a workspace
+		// ends up owned by whoever was promoted last.
+		if (!makeOwner && memberId === locals.member!.id) {
+			return fail(400, {
+				error: 'You cannot step yourself down. Another owner must change your role'
+			});
 		}
 
 		if (!makeOwner) {
