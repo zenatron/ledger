@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { audit } from '$lib/server/audit';
 import * as v from 'valibot';
 import { createWorkspace } from '$lib/application/create-workspace';
 import { JoinWorkspaceError, joinWorkspace } from '$lib/application/join-workspace';
@@ -57,14 +58,19 @@ export const actions: Actions = {
 		redirect(303, `/w/${slug}`);
 	},
 
-	join: async ({ locals, request }) => {
+	join: async (event) => {
+		const { locals, request } = event;
 		if (!locals.user) redirect(303, '/');
 		const code = String((await request.formData()).get('code') ?? '')
 			.trim()
 			.toUpperCase();
 		if (!code) return fail(400, { action: 'join', error: 'Enter an invite code.' });
 		try {
-			const { slug } = await joinWorkspace(getDb(), deps, { userId: locals.user.id, code });
+			const { slug, workspaceId } = await joinWorkspace(getDb(), deps, {
+				userId: locals.user.id,
+				code
+			});
+			await audit(event, { action: 'invite.consumed', workspaceId });
 			redirect(303, `/w/${slug}`);
 		} catch (e) {
 			if (e instanceof JoinWorkspaceError) {

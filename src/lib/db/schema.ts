@@ -838,3 +838,41 @@ export const pendingShare = pgTable(
 	},
 	(t) => [index('pending_share_member_idx').on(t.workspaceId, t.memberId, t.createdAt)]
 );
+
+/*
+ * Who changed access, from where, on which session. Append-only: never updated,
+ * never deleted.
+ *
+ * Deliberately no foreign keys. The log has to outlive what it describes — a
+ * deleted workspace, a removed member — and a row that cascades away with its
+ * subject is no record at all. Names are snapshotted for the same reason.
+ *
+ * `sessionTag` is a short hash of the session id, never the id itself (that is
+ * a credential): enough to tell "the same session did all of these" apart from
+ * "a new login did this". `sessionUserAgent` is the device the session was
+ * signed in on. A request whose user agent differs from it is a session cookie
+ * being used somewhere it was not issued — the signature of a stolen sid.
+ */
+export const securityEvent = pgTable(
+	'security_event',
+	{
+		id: uuid('id').primaryKey(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+		action: text('action').notNull(),
+		workspaceId: uuid('workspace_id'),
+		actorUserId: uuid('actor_user_id'),
+		actorMemberId: uuid('actor_member_id'),
+		actorName: text('actor_name'),
+		targetMemberId: uuid('target_member_id'),
+		targetName: text('target_name'),
+		detail: jsonb('detail'),
+		ip: text('ip'),
+		userAgent: text('user_agent'),
+		sessionTag: text('session_tag'),
+		sessionUserAgent: text('session_user_agent')
+	},
+	(t) => [
+		index('security_event_workspace_idx').on(t.workspaceId, t.createdAt),
+		index('security_event_actor_idx').on(t.actorUserId, t.createdAt)
+	]
+);

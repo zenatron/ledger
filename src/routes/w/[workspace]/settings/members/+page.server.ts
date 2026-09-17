@@ -17,6 +17,7 @@ import { describeRecurrence, parseRRule } from '$lib/domain/recurrence/rrule';
 import { listBuckets } from '$lib/repo/buckets';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
 import { systemClock } from '$lib/infra/time/system-clock';
+import { audit } from '$lib/server/audit';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -85,9 +86,10 @@ function describeSchedule(rrule: string): string {
 }
 
 export const actions: Actions = {
-	invite: async ({ locals }) => {
+	invite: async (event) => {
+		const { locals } = event;
 		if (locals.member!.role !== 'owner') error(403, 'Only the owner can create invites');
-		await createInvite(
+		const created = await createInvite(
 			getDb(),
 			{ clock: systemClock, ids: uuidv7 },
 			{
@@ -96,6 +98,11 @@ export const actions: Actions = {
 				ttlDays: locals.workspace!.inviteTtlDays
 			}
 		);
+		// The code itself is a credential until used; the log names it by id.
+		await audit(event, {
+			action: 'invite.created',
+			detail: { inviteId: created.id, expiresAt: created.expiresAt.toISOString() }
+		});
 		return { ok: true };
 	},
 
@@ -113,7 +120,8 @@ export const actions: Actions = {
 	 * nobody in charge — and making the demotion theirs, not yours, keeps a
 	 * workspace from changing hands in one sitting.
 	 */
-	setMemberRole: async ({ locals, request }) => {
+	setMemberRole: async (event) => {
+		const { locals, request } = event;
 		if (locals.member!.role !== 'owner') error(403, 'Only an owner can change roles');
 		const form = await request.formData();
 		const memberId = String(form.get('memberId') ?? '');
@@ -156,6 +164,12 @@ export const actions: Actions = {
 			.where(
 				and(eq(workspaceMember.id, memberId), eq(workspaceMember.workspaceId, locals.workspace!.id))
 			);
+		await audit(event, {
+			action: 'member.role_changed',
+			targetMemberId: memberId,
+			targetName: target.user.displayName,
+			detail: { from: target.member.role, to: makeOwner ? 'owner' : 'member' }
+		});
 		return { ok: true };
 	},
 
@@ -167,7 +181,8 @@ export const actions: Actions = {
 	 * Their history stays: past purchases are a record of what happened, not
 	 * configuration, and deleting them would silently rewrite everyone's totals.
 	 */
-	setMemberStatus: async ({ locals, request }) => {
+	setMemberStatus: async (event) => {
+		const { locals, request } = event;
 		if (locals.member!.role !== 'owner') error(403, 'Only the owner can disable members');
 		const form = await request.formData();
 		const memberId = String(form.get('memberId') ?? '');
@@ -216,10 +231,17 @@ export const actions: Actions = {
 			.where(
 				and(eq(workspaceMember.id, memberId), eq(workspaceMember.workspaceId, locals.workspace!.id))
 			);
+		await audit(event, {
+			action: 'member.status_changed',
+			targetMemberId: memberId,
+			targetName: target.user.displayName,
+			detail: { from: target.member.status, to: disable ? 'disabled' : 'active' }
+		});
 		return { ok: true };
 	},
 
-	policy: async ({ locals, request }) => {
+	policy: async (event) => {
+		const { locals, request } = event;
 		if (locals.member!.role !== 'owner') error(403, 'Only the owner can change policies');
 		const form = await request.formData();
 		const approverIds = form.getAll('approverIds').map(String);
@@ -277,6 +299,12 @@ export const actions: Actions = {
 					eq(workspaceMember.workspaceId, locals.workspace!.id)
 				)
 			);
+		await audit(event, {
+			action: 'member.policy_changed',
+			targetMemberId: f.memberId,
+			targetName: target.user.displayName,
+			detail: { from: existing, to: policy }
+		});
 		return { ok: true };
 	}
 };

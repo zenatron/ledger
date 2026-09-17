@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { audit } from '$lib/server/audit';
 import { randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import * as v from 'valibot';
@@ -99,7 +100,8 @@ export const actions: Actions = {
 		return { section: 'summary', ok: true };
 	},
 
-	ntfy: async ({ locals, request }) => {
+	ntfy: async (event) => {
+		const { locals, request } = event;
 		const parsed = v.safeParse(NtfySchema, Object.fromEntries(await request.formData()));
 		if (!parsed.success) return fail(400, { section: 'ntfy', error: parsed.issues[0].message });
 		await setNtfyTarget(getDb(), deps, {
@@ -107,11 +109,19 @@ export const actions: Actions = {
 			topic: parsed.output.topic,
 			serverUrl: parsed.output.serverUrl
 		});
+		// Where your notifications go is where your approvals can be read.
+		await audit(event, {
+			action: 'ntfy.target_set',
+			workspaceId: null,
+			detail: { topic: parsed.output.topic, serverUrl: parsed.output.serverUrl ?? null }
+		});
 		return { section: 'ntfy', ok: true };
 	},
 
-	ntfyOff: async ({ locals }) => {
+	ntfyOff: async (event) => {
+		const { locals } = event;
 		await deleteNtfyTarget(getDb(), locals.user!.id);
+		await audit(event, { action: 'ntfy.target_removed', workspaceId: null });
 		return { section: 'ntfy', ok: true };
 	},
 

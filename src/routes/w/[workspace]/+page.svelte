@@ -13,7 +13,8 @@
 		Shapes,
 		Sparkles,
 		Users,
-		Webhook
+		Webhook,
+		ShieldAlert
 	} from '@lucide/svelte';
 	import { installPrompt, isIos, promptInstall, dismissInstall } from '$lib/install-prompt.svelte';
 	import { goto } from '$app/navigation';
@@ -307,6 +308,24 @@
 					>
 				</p>
 				<p class="text-[13px]" style="color: var(--ink-3)">Connect Claude or another assistant</p>
+			</div>
+			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
+		</a>
+	{/if}
+
+	{#if !__DEMO__ && data.member.role === 'owner'}
+		<a href="/w/{slug}/settings/security" class="press card flex items-center gap-3.5 p-4">
+			<span
+				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
+			>
+				<ShieldAlert class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
+			</span>
+			<div class="flex-1">
+				<p class="text-[15px] font-medium" style="color: var(--ink)">Security log</p>
+				<p class="text-[13px]" style="color: var(--ink-3)">
+					Sign-ins, role changes, and who did what from where
+				</p>
 			</div>
 			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
 		</a>

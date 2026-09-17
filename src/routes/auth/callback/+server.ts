@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { finishLogin } from '$lib/server/auth/oidc';
 import { createSession, setSessionCookie } from '$lib/server/auth/session';
+import { audit } from '$lib/server/audit';
 import { getDb } from '$lib/server/db';
 import { upsertUserFromOidc } from '$lib/repo/users';
 import { processAvatar } from '$lib/infra/images/process';
@@ -12,7 +13,8 @@ import { user } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ url, cookies, request, getClientAddress }) => {
+export const GET: RequestHandler = async (event) => {
+	const { url, cookies, request, getClientAddress } = event;
 	const state = cookies.get('oidc_state');
 	const nonce = cookies.get('oidc_nonce');
 	const codeVerifier = cookies.get('oidc_verifier');
@@ -102,5 +104,16 @@ export const GET: RequestHandler = async ({ url, cookies, request, getClientAddr
 		ip: getClientAddress()
 	});
 	setSessionCookie(cookies, session.id, session.expiresAt);
+	await audit(event, {
+		action: 'auth.login',
+		workspaceId: null,
+		actor: {
+			userId: stored.id,
+			name: stored.displayName,
+			sessionId: session.id,
+			sessionUserAgent: session.userAgent
+		},
+		detail: { oidcSubject: identity.subject }
+	});
 	redirect(303, '/');
 };

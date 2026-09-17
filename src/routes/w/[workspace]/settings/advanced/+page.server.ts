@@ -1,4 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
+import { audit } from '$lib/server/audit';
 import { eq } from 'drizzle-orm';
 import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
@@ -56,7 +57,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 };
 
 export const actions: Actions = {
-	save: async ({ locals, request }) => {
+	save: async (event) => {
+		const { locals, request } = event;
 		if (locals.member!.role !== 'owner') error(403);
 		const fd = await request.formData();
 		const weekDay = Number(fd.get('weekStartDay'));
@@ -79,6 +81,15 @@ export const actions: Actions = {
 				weekStartDay: Number.isFinite(weekDay) && weekDay >= 0 && weekDay <= 6 ? weekDay : undefined
 			})
 			.where(eq(workspace.id, locals.workspace!.id));
+		const before = locals.workspace!;
+		const changed = Object.fromEntries(
+			(Object.keys(out) as (keyof typeof out)[])
+				.filter((k) => before[k] !== out[k])
+				.map((k) => [k, { from: before[k], to: out[k] }])
+		);
+		if (Object.keys(changed).length > 0) {
+			await audit(event, { action: 'workspace.settings_changed', detail: changed });
+		}
 		return { ok: true };
 	}
 };

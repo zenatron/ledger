@@ -13,6 +13,7 @@ import {
 } from '$lib/server/auth/session';
 import { findWorkspaceForMember } from '$lib/repo/workspaces';
 import { rateLimitOk } from '$lib/server/rate-limit';
+import { audit } from '$lib/server/audit';
 import { unsealDuePurchases } from '$lib/application/unseal-due';
 import { releaseDueHolds } from '$lib/application/release-holds';
 import { nudgeStaleRequests } from '$lib/application/nudge-stale';
@@ -242,6 +243,9 @@ const WORKSPACE_PATH = /^\/w\/([^/]+)(?:\/|$)/;
 /** A last path segment with an extension (`icon.png`, `export.csv`) — the shape
  *  extension-keyed proxy caches store without regard to cookies. */
 const FILE_LIKE_PATH = /\.[A-Za-z0-9]+$/;
+/** Session+device pairs already logged as mismatched, so a hijacked session
+ *  writes one row rather than one per request. Per process, bounded. */
+const mismatchSeen = new Set<string>();
 
 /**
  * Single authorization layer: resolves session → user → (for /w/ routes)
@@ -301,6 +305,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 			// actually moved, which is at most once per half-TTL.
 			if (hit.renewed && cookieSafe) {
 				setSessionCookie(event.cookies, hit.session.id, hit.session.expiresAt);
+			}
+			// A session presented by a different device than it was issued to is
+			// what a stolen cookie looks like. Recorded, not refused: a browser
+			// update changes the user agent too, and locking people out on that
+			// would be worse than a line in the log. Once per session and device.
+			const ua = event.request.headers.get('user-agent');
+			if (hit.session.userAgent && ua && ua !== hit.session.userAgent) {
+				const key = `${hit.session.id}\n${ua}`;
+				if (!mismatchSeen.has(key)) {
+					if (mismatchSeen.size >= 10_000) mismatchSeen.clear();
+					mismatchSeen.add(key);
+					await audit(event, {
+						action: 'session.device_mismatch',
+						workspaceId: null,
+						detail: { path: event.url.pathname }
+					});
+				}
 			}
 		} else if (cookieSafe) {
 			clearSessionCookie(event.cookies);

@@ -3,6 +3,7 @@ import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
 import { systemClock } from '$lib/infra/time/system-clock';
+import { audit } from '$lib/server/audit';
 import {
 	API_SCOPES,
 	createToken,
@@ -43,7 +44,8 @@ const CreateSchema = v.object({
 const EXPIRY_DAYS: Record<string, number> = { '30': 30, '90': 90, '365': 365 };
 
 export const actions: Actions = {
-	create: async ({ locals, request }) => {
+	create: async (event) => {
+		const { locals, request } = event;
 		const form = await request.formData();
 		const parsed = v.safeParse(CreateSchema, {
 			name: form.get('name'),
@@ -63,16 +65,27 @@ export const actions: Actions = {
 			scopes: f.scopes as ApiScope[],
 			expiresAt
 		});
+		await audit(event, {
+			action: 'api_token.created',
+			detail: {
+				name: f.name,
+				prefix,
+				scopes: f.scopes,
+				expiresAt: expiresAt?.toISOString() ?? null
+			}
+		});
 		// The secret is returned exactly once — the page shows it, then it's gone.
 		return { created: { secret, prefix, name: f.name } };
 	},
 
-	revoke: async ({ locals, request }) => {
+	revoke: async (event) => {
+		const { locals, request } = event;
 		const form = await request.formData();
 		const tokenId = String(form.get('tokenId') ?? '');
 		if (!tokenId) return fail(400, { error: 'Missing token' });
 		const removed = await revokeToken(getDb(), systemClock.now(), locals.member!.id, tokenId);
 		if (!removed) return fail(400, { error: 'That token no longer exists.' });
+		await audit(event, { action: 'api_token.revoked', detail: { tokenId } });
 		return { ok: true };
 	}
 };
