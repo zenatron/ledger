@@ -2,7 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
-import { workspaceMember } from '$lib/db/schema';
+import { bucket, recurringRule, workspaceMember } from '$lib/db/schema';
 import { createInvite, listOpenInvites } from '$lib/server/repo/invites';
 import { listMembers } from '$lib/repo/workspaces';
 import {
@@ -35,7 +35,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	// flag: inferring it from "only I can charge this" also caught personal
 	// savings buckets, which are that too. Shown here for reference only; it is
 	// managed on the Buckets page.
-	const buckets = await listBuckets(db, locals.workspace!.id);
+	const buckets = await listBuckets(db, locals.workspace!.id, {
+		viewerId: locals.member!.id,
+		now
+	});
 	const allowanceOf = new Map(
 		buckets
 			.filter((b) => b.bucket.isAllowance && b.bucket.status === 'active')
@@ -225,17 +228,46 @@ export const actions: Actions = {
 			}
 		}
 
-		await db
-			.update(workspaceMember)
-			.set({ status: disable ? 'disabled' : 'active' })
-			.where(
-				and(eq(workspaceMember.id, memberId), eq(workspaceMember.workspaceId, locals.workspace!.id))
-			);
+		/*
+		 * Disabling also stops what they left running. Their recurring charges
+		 * would otherwise keep landing in the shared ledger every month with
+		 * nobody able to confirm or cancel them, and their buckets would keep
+		 * filling. Paused rather than ended: it is visible on the Plan page, and
+		 * restoring the member leaves the choice to resume with them — resuming
+		 * skips what was missed, so nothing floods in on the way back.
+		 */
+		const paused = await db.transaction(async (tx) => {
+			await tx
+				.update(workspaceMember)
+				.set({ status: disable ? 'disabled' : 'active' })
+				.where(
+					and(
+						eq(workspaceMember.id, memberId),
+						eq(workspaceMember.workspaceId, locals.workspace!.id)
+					)
+				);
+			if (!disable) return { rules: 0, buckets: 0 };
+			const rules = await tx
+				.update(recurringRule)
+				.set({ status: 'paused' })
+				.where(and(eq(recurringRule.memberId, memberId), eq(recurringRule.status, 'active')))
+				.returning({ id: recurringRule.id });
+			const buckets = await tx
+				.update(bucket)
+				.set({ status: 'paused' })
+				.where(and(eq(bucket.memberId, memberId), eq(bucket.status, 'active')))
+				.returning({ id: bucket.id });
+			return { rules: rules.length, buckets: buckets.length };
+		});
 		await audit(event, {
 			action: 'member.status_changed',
 			targetMemberId: memberId,
 			targetName: target.user.displayName,
-			detail: { from: target.member.status, to: disable ? 'disabled' : 'active' }
+			detail: {
+				from: target.member.status,
+				to: disable ? 'disabled' : 'active',
+				...(disable ? { pausedRules: paused.rules, pausedBuckets: paused.buckets } : {})
+			}
 		});
 		return { ok: true };
 	},
@@ -245,13 +277,16 @@ export const actions: Actions = {
 		if (locals.member!.role !== 'owner') error(403, 'Only the owner can change policies');
 		const form = await request.formData();
 		const approverIds = form.getAll('approverIds').map(String);
-		const parsed = v.safeParse(PolicySchema, {
-			memberId: form.get('memberId'),
-			mode: form.get('mode'),
-			threshold: form.get('threshold') ?? undefined,
-			bucketCharges: form.get('bucketCharges') ?? undefined,
-			routingMode: form.get('routingMode') ?? undefined
-		});
+		/*
+		 * The whole form, not a hand-copied list of its fields. The list used to
+		 * be written out here, and `bucketScope` was added to the schema and the
+		 * sheet but never to the list — so it always parsed as its default, "any".
+		 * "Only their own buckets" could not be switched on from here, and saving
+		 * any other change to an allowance member's policy silently switched it
+		 * off. valibot drops keys the schema doesn't name, so passing everything
+		 * is safe; `approverIds` repeats and is read with getAll above.
+		 */
+		const parsed = v.safeParse(PolicySchema, Object.fromEntries(form));
 		if (!parsed.success) return fail(400, { error: parsed.issues[0].message });
 		const f = parsed.output;
 

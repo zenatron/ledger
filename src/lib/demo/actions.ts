@@ -8,12 +8,14 @@ type DemoAction = (ctx: WorkspaceContext, event: any) => any;
 
 const registry = new Map<string, Record<string, DemoAction>>();
 
-/** `/w/[workspace]/purchases/[id]` -> a matcher and the names it captures. */
+/** `/w/[workspace]/purchases/[id=uuid]` -> a matcher and the names it captures.
+ *  A `=matcher` suffix names SvelteKit's param matcher, not the param, so it is
+ *  dropped here: the server has already refused anything the matcher would. */
 function toPattern(routeId: string) {
 	const names: string[] = [];
 	const source = routeId
 		.replace(/[.*+?^${}()|\\]/g, '\\$&')
-		.replace(/\[([^\]]+)\]/g, (_m, name: string) => {
+		.replace(/\[([^\]=]+)(?:=[^\]]+)?\]/g, (_m, name: string) => {
 			names.push(name);
 			return '([^/]+)';
 		});

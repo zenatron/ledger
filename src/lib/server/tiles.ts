@@ -3,6 +3,9 @@ import { dirname, join } from 'node:path';
 import { MAX_ZOOM } from '$lib/domain/location/mercator';
 import type { Env } from '$lib/server/env';
 
+/** Logged once per process, not once per tile. */
+let cacheWarned = false;
+
 /**
  * On-disk cache for basemap tiles.
  *
@@ -155,11 +158,31 @@ export async function getTile(
 		if (!res.ok) return stale;
 
 		const bytes = await res.arrayBuffer();
-		await mkdir(dirname(path), { recursive: true });
-		const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-		await writeFile(tmp, new Uint8Array(bytes));
-		await rename(tmp, path);
-		void maybeSweep(env.TILE_CACHE_DIR);
+		/*
+		 * Caching is best effort and must never cost the tile. The write used to
+		 * share the fetch's catch, so a cache directory the process couldn't write
+		 * (a root-owned volume, a full disk) threw away a tile that had arrived
+		 * fine, and the map drew its graticule instead — with nothing logged.
+		 */
+		try {
+			await mkdir(dirname(path), { recursive: true });
+			const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
+			await writeFile(tmp, new Uint8Array(bytes));
+			await rename(tmp, path);
+			void maybeSweep(env.TILE_CACHE_DIR);
+		} catch (e) {
+			if (!cacheWarned) {
+				cacheWarned = true;
+				console.log(
+					JSON.stringify({
+						level: 'warn',
+						msg: 'tiles: cache not writable, serving uncached',
+						dir: env.TILE_CACHE_DIR,
+						err: (e as Error).message
+					})
+				);
+			}
+		}
 		return bytes;
 	} catch {
 		// Upstream down, timed out, or offline. If we have yesterday's copy, that

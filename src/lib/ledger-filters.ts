@@ -18,6 +18,8 @@ export interface LedgerLinkParams {
 	/** A category id, or NO_CATEGORY. */
 	category?: string | null;
 	member?: string;
+	/** Only charges a recurring rule made. */
+	recurring?: boolean;
 	/**
 	 * A geographic window, as `minLat,minLng,maxLat,maxLng` in millidegrees —
 	 * the same integers the columns hold, so the link carries no precision the
@@ -58,6 +60,7 @@ export function ledgerLink(slug: string, params: LedgerLinkParams): string {
 	if (params.to) q.set('to', params.to);
 	if (params.category !== undefined) q.set('category', params.category ?? NO_CATEGORY);
 	if (params.member) q.set('member', params.member);
+	if (params.recurring) q.set('recurring', '1');
 	if (params.bbox) q.set('bbox', bboxParam(params.bbox));
 	q.set('basis', 'spend');
 	return `/w/${slug}/purchases?${q}`;

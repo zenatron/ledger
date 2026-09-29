@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
 	import Toggle from '$lib/components/Toggle.svelte';
@@ -22,9 +23,11 @@
 	let slug = $derived(page.params.workspace);
 	const owner = $derived(data.isOwner);
 
-	let mode = $state<'off' | 'local' | 'external'>(data.config.mode);
-	let endpoint = $state(data.config.endpoint);
-	let model = $state(data.config.model);
+	// Seeded once, deliberately: the form's draft. Re-seeded below after a save.
+	const initial = untrack(() => data.config);
+	let mode = $state<'off' | 'local' | 'external'>(initial.mode);
+	let endpoint = $state(initial.endpoint);
+	let model = $state(initial.model);
 	let apiKey = $state('');
 
 	// Re-sync form state from the server after a successful save — never after a

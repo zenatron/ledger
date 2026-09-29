@@ -1,9 +1,10 @@
-import { and, eq, lt, or, sql } from 'drizzle-orm';
+import { and, eq, lt, notInArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db } from '$lib/db/types';
 import { purchase, purchaseApprover, user, workspace, workspaceMember } from '$lib/db/schema';
 import { Money } from '$lib/domain/money/money';
 import { nextNudgeAt, waitingDays } from '$lib/domain/approval/staleness';
+import { isSealed } from '$lib/domain/visibility/seal';
 import type { Clock } from '$lib/ports/clock';
 import type { Notifier, Recipient } from '$lib/ports/notifier';
 
@@ -69,7 +70,10 @@ export async function nudgeStaleRequests(
 		 * for everyone else.
 		 *
 		 * Still excludes the requester (you don't nudge someone about their own
-		 * request) and still only reaches active members.
+		 * request) and still only reaches active members — and never anyone the
+		 * purchase is sealed from. The live policy half names the partner a gift
+		 * is for as readily as anyone, and a "Still waiting" push carries the item
+		 * and its price, so without this the reminder was the leak.
 		 */
 		const requester = alias(workspaceMember, 'requester_member');
 		const approvers = await db
@@ -81,6 +85,9 @@ export async function nudgeStaleRequests(
 					eq(workspaceMember.workspaceId, row.p.workspaceId),
 					eq(workspaceMember.status, 'active'),
 					sql`${workspaceMember.id} <> ${row.p.memberId}`,
+					isSealed(row.p, now)
+						? notInArray(workspaceMember.id, row.p.sealedFromMemberIds)
+						: undefined,
 					or(
 						sql`exists (
 							select 1 from ${purchaseApprover}

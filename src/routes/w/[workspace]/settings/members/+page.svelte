@@ -585,7 +585,12 @@
 							success: disabled ? 'Member restored' : 'Member disabled',
 							confirm: disabled
 								? undefined
-								: `Disable ${m.displayName}? They lose access, but their history stays.`
+								: {
+										title: `Disable ${m.displayName}?`,
+										body: 'They lose access, but their history stays. Their recurring charges and buckets are paused; you can resume them from Plan.',
+										confirmLabel: 'Disable',
+										tone: 'danger'
+									}
 						}}
 						class="pt-3 pb-2"
 					>

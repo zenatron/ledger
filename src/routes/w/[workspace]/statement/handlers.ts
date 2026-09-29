@@ -79,7 +79,7 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		periodTotal(db, scope, period, now),
 		periodTotal(db, scope, prevPeriod, now),
 		incomeInPeriod(db, ws.id, period, ws.timezone, today),
-		bucketFlowsInPeriod(db, ws.id, period, ws.timezone),
+		bucketFlowsInPeriod(db, ws.id, period, ws.timezone, { viewerId: scope.viewerId, now }),
 		categoryBreakdown(db, scope, period, now),
 		memberBreakdown(db, scope, period, now),
 		periodCount(db, scope, period, now),

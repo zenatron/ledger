@@ -13,6 +13,9 @@ import {
 	unlinkMatch
 } from '$lib/application/reconcile';
 import { getNotifier } from '$lib/server/notify';
+import { isMalformedInputError } from '$lib/server/db/errors';
+import { PurchaseStateError } from '$lib/domain/purchase/purchase';
+import { ApprovalRoutingError } from '$lib/domain/approval/evaluate';
 import { getLlmAssist } from '$lib/infra/llm';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
 import { systemClock } from '$lib/infra/time/system-clock';
@@ -115,13 +118,31 @@ function scopeOf(locals: App.Locals) {
 	return { workspaceId: locals.workspace!.id, memberId: locals.member!.id };
 }
 
+/**
+ * The errors an action here can answer with a message rather than a 500:
+ * reconciliation's own refusals, and — since "create" goes through
+ * `submitPurchase` — the purchase rules it can trip (no approver to route to, a
+ * category that isn't this workspace's). A line or purchase id that isn't an id
+ * at all is a line that doesn't exist.
+ */
+function refusal(e: unknown) {
+	if (
+		e instanceof ReconcileError ||
+		e instanceof PurchaseStateError ||
+		e instanceof ApprovalRoutingError
+	) {
+		return fail(400, { error: e.message });
+	}
+	if (isMalformedInputError(e)) return fail(400, { error: "That line doesn't exist any more." });
+	throw e;
+}
+
 async function run(fn: () => Promise<void>) {
 	try {
 		await fn();
 		return { ok: true };
 	} catch (e) {
-		if (e instanceof ReconcileError) return fail(400, { error: e.message });
-		throw e;
+		return refusal(e);
 	}
 }
 
@@ -171,8 +192,7 @@ export const actions: Actions = {
 				pending: r.state === 'pending_approval'
 			};
 		} catch (e) {
-			if (e instanceof ReconcileError) return fail(400, { error: e.message });
-			throw e;
+			return refusal(e);
 		}
 	},
 	close: async ({ locals, params }) =>

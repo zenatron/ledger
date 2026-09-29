@@ -32,6 +32,7 @@
 	import { modal } from '$lib/actions/modal';
 	import HoldPicker from '$lib/components/HoldPicker.svelte';
 	import ImageViewer from '$lib/components/ImageViewer.svelte';
+	import { calDateInZone, formatCalDate } from '$lib/domain/time/zoned';
 
 	let { data, form } = $props();
 	let viewing = $state(false);
@@ -137,11 +138,14 @@
 	// ISO instant -> the local calendar day, as a <input type="date"> value. Used to
 	// seed "Mark as bought" with the purchase's original date so completing it keeps
 	// that date instead of silently stamping today when the field is left untouched.
-	function toDateValue(iso: string) {
-		const d = new Date(iso);
-		const pad = (n: number) => String(n).padStart(2, '0');
-		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-	}
+	/*
+	 * "On" defaults to today, in the household's zone, and can't pass it. It used
+	 * to default to the day the request was *made*, so a request approved last
+	 * week and bought today was filed under last week — and into last month's
+	 * totals whenever the two straddled a month end — unless someone noticed.
+	 */
+	const todayIso = $derived(formatCalDate(calDateInZone(new Date(), data.workspace.timezone)));
+
 	function fmtDateLong(iso: string) {
 		return new Date(iso).toLocaleDateString(undefined, {
 			weekday: 'long',
@@ -1277,7 +1281,8 @@
 								name="finalDate"
 								type="date"
 								aria-label="Date"
-								value={p.requestedAt ? toDateValue(p.requestedAt) : ''}
+								value={todayIso}
+								max={todayIso}
 								class="field text-[16px]"
 							/>
 						</label>
@@ -1455,14 +1460,19 @@
 	}
 	/* The value itself is the affordance — the pencil only hints. On desktop
 	   it appears on hover; on touch it's always visible (there's no hover to
-	   discover it). The row that owns it gets .edit-row. */
+	   discover it). The row that owns it gets .edit-row.
+
+	   The pencil is a Lucide component, so its class lands on an element this
+	   component's scoped styles never see: written as `.edit-pencil` these rules
+	   compiled to nothing, and the pencil sat there on desktop the whole time.
+	   Anchored on the row (scoped) and reaching into the icon (global). */
 	@media (hover: hover) {
-		.edit-pencil {
+		.edit-row :global(.edit-pencil) {
 			opacity: 0;
 			transition: opacity var(--dur-fast) var(--ease-out);
 		}
-		.edit-row:hover .edit-pencil,
-		.edit-row:focus-within .edit-pencil {
+		.edit-row:hover :global(.edit-pencil),
+		.edit-row:focus-within :global(.edit-pencil) {
 			opacity: 1;
 		}
 	}

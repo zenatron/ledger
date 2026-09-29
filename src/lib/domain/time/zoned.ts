@@ -62,3 +62,34 @@ export function calDateInZone(instant: Date, timeZone: string): CalDate {
 	const wall = new Date(wallClockAsUtc(instant.getTime(), timeZone));
 	return { y: wall.getUTCFullYear(), m: wall.getUTCMonth() + 1, d: wall.getUTCDate() };
 }
+
+/**
+ * A `YYYY-MM-DD` string off a date input, as a calendar date — or null when it
+ * isn't a real one. Round-tripped through Date.UTC so "2026-02-30" is refused
+ * rather than rolling into March.
+ *
+ * Deliberately returns a calendar date, never an instant: `new Date('…T12:00')`
+ * reads the wall clock of whatever machine runs it, which in a container is UTC
+ * and not the workspace's. Turning the date into an instant is the caller's
+ * job, through `zonedTimeToUtc`, in the workspace zone.
+ */
+export function parseCalDate(raw: string | null | undefined): CalDate | null {
+	const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw ?? '');
+	if (!m) return null;
+	const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+	const probe = new Date(Date.UTC(y, mo - 1, d));
+	if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) {
+		return null;
+	}
+	return { y, m: mo, d };
+}
+
+/** `a` before, equal to, or after `b`: negative, zero, positive. */
+export function compareCalDates(a: CalDate, b: CalDate): number {
+	return a.y - b.y || a.m - b.m || a.d - b.d;
+}
+
+/** `{y, m, d}` → `YYYY-MM-DD`. */
+export function formatCalDate(d: CalDate): string {
+	return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+}

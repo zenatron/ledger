@@ -136,7 +136,10 @@ async function compose(
 		periodTotal(db, scope, period, now),
 		categoryBreakdown(db, scope, period, now),
 		incomeInPeriod(db, scope.workspaceId, period, scope.timezone, today),
-		bucketFlowsInPeriod(db, scope.workspaceId, period, scope.timezone)
+		bucketFlowsInPeriod(db, scope.workspaceId, period, scope.timezone, {
+			viewerId: scope.viewerId,
+			now
+		})
 	]);
 
 	// Set aside, and the funded part of what came back out. Kept apart so a

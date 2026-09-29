@@ -75,6 +75,20 @@ const EnvSchema = v.pipe(
 		/** Printed under the map. OSM's licence requires visible credit, so this is
 		 *  rendered as a permanent caption rather than hidden behind a tap. */
 		MAP_TILE_ATTRIBUTION: v.optional(v.string(), '© OpenStreetMap contributors'),
+		/**
+		 * Encrypts secrets a workspace stores (an external model's API key) at
+		 * rest. 32 random bytes, base64 — `openssl rand -base64 32`. Optional;
+		 * without it they are stored as before. Losing it means re-entering them.
+		 */
+		SECRETS_KEY: v.optional(
+			v.pipe(
+				v.string(),
+				v.check(
+					(k) => Buffer.from(k, 'base64').length === 32,
+					'must be 32 bytes, base64 (openssl rand -base64 32)'
+				)
+			)
+		),
 		/** Disposable third-party bytes. Deliberately outside BLOB_DIR so backups
 		 *  don't carry hundreds of megabytes of somebody else's map; safe to delete. */
 		TILE_CACHE_DIR: v.optional(v.pipe(v.string(), v.nonEmpty()), './data/tiles')

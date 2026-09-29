@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
 	import {
@@ -16,7 +17,9 @@
 	let slug = $derived(page.params.workspace);
 	const owner = $derived(data.isOwner);
 
-	let weekStartDay = $state(data.weekStartDay);
+	// Seeded once, deliberately: this is the draft being edited, and the effect
+	// below re-seeds it only after a save.
+	let weekStartDay = $state(untrack(() => data.weekStartDay));
 
 	// Re-sync from server only after a successful save — never during ordinary
 	// interaction where the local value is what the user is editing.

@@ -5,6 +5,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The demo build: the same app with a different driving adapter — no server,
@@ -46,6 +47,17 @@ export default defineConfig({
 	// branch in `$lib/actions/submit.ts` outright, so the production bundle never
 	// carries PGlite.
 	define: { __DEMO__: JSON.stringify(DEMO), __DEMO_SEED_ID__: JSON.stringify(seedId()) },
+	// Outside the demo, PGlite is swapped for a stub so its WASM and data files
+	// are never emitted into the build (see src/lib/demo/pglite-stub.ts).
+	resolve: DEMO
+		? {}
+		: {
+				alias: {
+					'@electric-sql/pglite': fileURLToPath(
+						new URL('./src/lib/demo/pglite-stub.ts', import.meta.url)
+					)
+				}
+			},
 	build: {
 		/*
 		 * Font files always ship as files, never as `data:` URIs.

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import DemoBanner from '$lib/components/DemoBanner.svelte';
 	import { invalidateAll } from '$app/navigation';
-	import { slide } from 'svelte/transition';
+	import { scale, slide } from 'svelte/transition';
 	import { page, navigating } from '$app/state';
 	import {
 		Check,
@@ -22,6 +22,7 @@
 	import { submitting } from '$lib/submit-state.svelte';
 	import { accentFor } from '$lib/accent';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { announcePageOwner } from '$lib/page-owner';
 
 	let { data, children } = $props();
 
@@ -65,11 +66,23 @@
 		// invalidateAll() then races the redirect and strands the progress bar (see
 		// submit-state). Wait for the submit and any navigation to settle, then
 		// refresh — the redirect already refreshes its own destination.
+		//
+		// A hidden tab only notes that it is behind. Every open page re-running
+		// every load on every change was the whole cost of live refresh, and a
+		// backgrounded tab — a PWA in the app switcher, a second browser tab —
+		// paid it for a screen nobody was looking at. It catches up once, the
+		// moment it is looked at again.
+		let behind = false;
 		const refresh = () => {
+			if (document.hidden) {
+				behind = true;
+				return;
+			}
 			if (submitting.active || navigating.to) {
 				t = setTimeout(refresh, 200);
 				return;
 			}
+			behind = false;
 			void invalidateAll();
 		};
 		source.onmessage = (e) => {
@@ -77,10 +90,21 @@
 			clearTimeout(t);
 			t = setTimeout(refresh, 200);
 		};
+		const onVisible = () => {
+			if (!document.hidden && behind) refresh();
+		};
+		document.addEventListener('visibilitychange', onVisible);
 		return () => {
 			clearTimeout(t);
+			document.removeEventListener('visibilitychange', onVisible);
 			source.close();
 		};
+	});
+
+	// The offline page cache is this person's; a different person signing in on
+	// the same device empties it first. See page-owner.ts.
+	$effect(() => {
+		if (!__DEMO__) announcePageOwner(data.user.id);
 	});
 
 	$effect(() => {
@@ -105,6 +129,11 @@
 			}
 		});
 	});
+
+	// Svelte's JS transitions escape the CSS reduced-motion clamp, so the badge
+	// checks for itself — the same concession Money.svelte makes.
+	const reduceMotion =
+		typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 	let showSwitcher = $state(false);
 	// Measured, not guessed: the header's height varies with the safe-area inset,
@@ -269,6 +298,44 @@
 </script>
 
 <svelte:head><title>{wsName} · Ledger</title></svelte:head>
+
+<!--
+	One tab. Labels are text, so they sit on the readable ink scale (--ink-3,
+	≥ 4.5:1) at 11px; they used to be 10px on --ink-4, which is only for
+	non-text marks. The icon keeps the quieter tone, so an inactive tab still
+	recedes.
+
+	The Ledger tab carries the decision queue: answering a request is the most
+	common thing anyone opens this app to do, and the count said so nowhere
+	outside the Ledger itself. Amber, the pending colour, because that is the
+	state it counts.
+-->
+{#snippet tabLink(tab: (typeof tabs)[number])}
+	{@const active = tabActive(tab)}
+	{@const TabIcon = TAB_ICONS[tab.icon as keyof typeof TAB_ICONS]}
+	{@const badge = tab.section === 'purchases' ? data.decisionCount : 0}
+	<a
+		href="/w/{slug}/{tab.section}"
+		class="press flex flex-1 flex-col items-center gap-1 py-1 text-[11px]"
+		style="color: {active ? 'var(--ws-accent)' : 'var(--ink-3)'}"
+		aria-current={active ? 'page' : undefined}
+		aria-label={badge > 0 ? `${tab.label}, ${badge} waiting on your decision` : undefined}
+	>
+		<span class="relative">
+			<TabIcon class="h-[24px] w-[24px]" style={active ? undefined : 'color: var(--ink-4)'} />
+			{#if badge > 0}
+				<span
+					class="tab-badge num"
+					style="background: var(--pending); color: var(--paper)"
+					aria-hidden="true"
+					in:scale={{ duration: reduceMotion ? 0 : 160, start: 0.6 }}
+					>{badge > 9 ? '9+' : badge}</span
+				>
+			{/if}
+		</span>
+		<span class="font-medium tracking-tight">{tab.label}</span>
+	</a>
+{/snippet}
 
 {#key slug}
 	<div
@@ -443,17 +510,7 @@
 		>
 			<div class="mx-auto flex max-w-3xl items-start justify-around px-2 pt-1.5">
 				{#each leftTabs as tab (tab.section)}
-					{@const active = tabActive(tab)}
-					{@const TabIcon = TAB_ICONS[tab.icon as keyof typeof TAB_ICONS]}
-					<a
-						href="/w/{slug}/{tab.section}"
-						class="press flex flex-1 flex-col items-center gap-1 py-1 text-[10px]"
-						style="color: {active ? 'var(--ws-accent)' : 'var(--ink-4)'}"
-						aria-current={active ? 'page' : undefined}
-					>
-						<TabIcon class="h-[24px] w-[24px]" />
-						<span class="font-medium tracking-tight">{tab.label}</span>
-					</a>
+					{@render tabLink(tab)}
 				{/each}
 
 				<!--
@@ -475,17 +532,7 @@
 				</a>
 
 				{#each rightTabs as tab (tab.section)}
-					{@const active = tabActive(tab)}
-					{@const TabIcon = TAB_ICONS[tab.icon as keyof typeof TAB_ICONS]}
-					<a
-						href="/w/{slug}/{tab.section}"
-						class="press flex flex-1 flex-col items-center gap-1 py-1 text-[10px]"
-						style="color: {active ? 'var(--ws-accent)' : 'var(--ink-4)'}"
-						aria-current={active ? 'page' : undefined}
-					>
-						<TabIcon class="h-[24px] w-[24px]" />
-						<span class="font-medium tracking-tight">{tab.label}</span>
-					</a>
+					{@render tabLink(tab)}
 				{/each}
 			</div>
 		</nav>
@@ -515,6 +562,22 @@
 		visibility removes it regardless of the FAB's geometry; visibility is
 		transitioned so it flips to hidden only after the fade completes.
 	*/
+	/* Sits on the icon's corner, ringed in paper so it reads as a separate
+	   mark on the frosted bar rather than a blot on the glyph. */
+	.tab-badge {
+		position: absolute;
+		top: -5px;
+		right: -9px;
+		min-width: 17px;
+		height: 17px;
+		padding: 0 4px;
+		border-radius: var(--r-full);
+		font-size: 11px;
+		font-weight: 700;
+		line-height: 17px;
+		text-align: center;
+		box-shadow: 0 0 0 2px var(--paper);
+	}
 	nav.kb-hidden {
 		transform: translateY(100%);
 		opacity: 0;

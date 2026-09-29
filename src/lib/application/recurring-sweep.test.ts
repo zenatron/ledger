@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { makeTestDb, seedWorkspace, type TestDb } from '$lib/repo/_test/harness';
-import { bucket, bucketTransaction, recurringRule } from '$lib/db/schema';
+import { bucket, bucketTransaction, recurringRule, workspaceMember } from '$lib/db/schema';
 import { materializeBucketAccruals } from '$lib/application/buckets';
 import { materializeDueRules } from '$lib/application/recurring';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
@@ -155,5 +155,28 @@ describe('materializeBucketAccruals — goal cap', () => {
 
 		const [row] = await h.db.select().from(bucket).where(eq(bucket.id, capped));
 		expect(row.nextAccrualAt!.getTime()).toBeGreaterThan(NOW.getTime());
+	});
+});
+
+describe('sweeps skip a disabled member', () => {
+	it('generates no charges and no accruals for someone who has been disabled', async () => {
+		h = await makeTestDb();
+		const ws = await seedWorkspace(h.db);
+		const gone = await ws.addMember({ display: 'Left' });
+		await ws.addRecurring({
+			memberId: gone,
+			amountMinor: 1500n,
+			rrule: GOOD,
+			nextOccurrenceAt: past
+		});
+		await ws.addBucket({ memberId: gone, amountMinor: 1000n, rrule: GOOD, nextAccrualAt: past });
+		await h.db
+			.update(workspaceMember)
+			.set({ status: 'disabled' })
+			.where(eq(workspaceMember.id, gone));
+
+		const deps = { clock, ids: uuidv7, notifier: nullNotifier };
+		expect(await materializeDueRules(h.db, deps)).toBe(0);
+		expect(await materializeBucketAccruals(h.db, deps)).toBe(0);
 	});
 });

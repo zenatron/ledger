@@ -11,6 +11,7 @@ import { periodBoundsUtc } from '$lib/domain/analytics/period';
 import { addDays, type CalDate } from '$lib/domain/recurrence/rrule';
 import { NO_CATEGORY, parseBboxParam } from '$lib/ledger-filters';
 import type { LedgerBasis, LedgerOpts } from '$lib/repo/ledger';
+import { uuidOrNull } from '$lib/uuid';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -61,12 +62,19 @@ export function ledgerOptsFromUrl(params: URLSearchParams, timezone: string): Le
 	 */
 	const bbox = parseBboxParam(params.get('bbox'));
 
+	/*
+	 * Ids are shape-checked and a bad one is dropped rather than refused: a
+	 * filter pointing at nothing is a stale link, and the useful answer to it is
+	 * the unfiltered ledger, not an error page. The search is capped for the
+	 * same reason the form caps what you can type into it.
+	 */
 	return {
-		search: params.get('q') || undefined,
-		categoryId: uncategorized ? undefined : rawCategory || undefined,
+		search: params.get('q')?.slice(0, 200) || undefined,
+		categoryId: uncategorized ? undefined : (uuidOrNull(rawCategory) ?? undefined),
 		uncategorized,
-		memberId: params.get('member') || undefined,
-		accountId: params.get('account') || undefined,
+		memberId: uuidOrNull(params.get('member')) ?? undefined,
+		accountId: uuidOrNull(params.get('account')) ?? undefined,
+		recurringOnly: params.get('recurring') === '1',
 		from: bounds?.from,
 		to: bounds?.to,
 		basis,

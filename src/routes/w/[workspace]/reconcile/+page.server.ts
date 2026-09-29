@@ -1,3 +1,4 @@
+import { isUuid } from '$lib/uuid';
 import { fail, redirect } from '@sveltejs/kit';
 import { getDb } from '$lib/server/db';
 import { listImports } from '$lib/repo/statements';
@@ -220,7 +221,7 @@ export const actions: Actions = {
 	delete: async ({ request, locals }) => {
 		const form = await request.formData();
 		const importId = String(form.get('importId') ?? '');
-		if (!importId) return fail(400, { error: 'Nothing to remove.' });
+		if (!isUuid(importId)) return fail(400, { error: 'Nothing to remove.' });
 		await deleteImport(
 			getDb(),
 			deps,

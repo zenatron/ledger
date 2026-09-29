@@ -31,7 +31,7 @@ const BOOT_HTML = `${ROOT}/src/demo-boot.html`;
 export const DEMO_ROUTES = [
 	'w/[workspace]/purchases',
 	'w/[workspace]/purchases/new',
-	'w/[workspace]/purchases/[id]',
+	'w/[workspace]/purchases/[id=uuid]',
 	'w/[workspace]/buckets',
 	'w/[workspace]/income',
 	'w/[workspace]/analytics',
@@ -205,6 +205,7 @@ import { getDemoContext } from '$lib/demo/context';
 import { installDemoEndpoints } from '$lib/demo/endpoints';
 import { registerAll } from './demo-actions';
 import { listWorkspacesForUser } from '$lib/repo/workspaces';
+import { decisionQueueIds } from '$lib/repo/purchases';
 import { isSignedOut } from '$lib/demo/session';
 import { redirect } from '@sveltejs/kit';
 
@@ -223,7 +224,10 @@ export const load = async ({ params }: { params: { workspace: string } }) => {
 	if (isSignedOut()) redirect(307, \`\${base}/\`);
 
 	const { db, user, workspace, member } = await getDemoContext(base, params.workspace);
-	const memberships = await listWorkspacesForUser(db, user.id);
+	const [memberships, decisions] = await Promise.all([
+		listWorkspacesForUser(db, user.id),
+		decisionQueueIds(db, { workspaceId: workspace.id, viewerId: member.id }, new Date())
+	]);
 	return {
 		user: {
 			id: user.id,
@@ -241,6 +245,7 @@ export const load = async ({ params }: { params: { workspace: string } }) => {
 			assistEnabled: false
 		},
 		member: { id: member.id, role: member.role },
+		decisionCount: decisions.length,
 		workspaces: memberships.map((m) => ({
 			slug: m.workspace.slug,
 			name: m.workspace.name,

@@ -3,8 +3,15 @@
 	import { ChevronRight } from '@lucide/svelte';
 	import AccentPicker from '$lib/components/AccentPicker.svelte';
 	import { ACCENTS, accentFor } from '$lib/accent';
+	import { defaultCurrency, timeZoneOptions } from '$lib/locale-defaults';
 	let { data, form } = $props();
 	const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	// The browser's zone is always selectable, and the currency starts at the
+	// one for the browser's region. See locale-defaults.ts for why both matter.
+	const zones = $derived(timeZoneOptions(data.timezones, tz));
+	const currency = $derived(
+		typeof navigator === 'undefined' ? 'USD' : defaultCurrency(navigator.languages, data.currencies)
+	);
 
 	let selectedColor = $state<string>(ACCENTS[0]);
 	let wsName = $state('');
@@ -73,11 +80,11 @@
 				<input type="hidden" name="accentColor" value={selectedColor} />
 				<div class="grid grid-cols-2 gap-3">
 					<select name="currency" class="field text-[16px]">
-						{#each data.currencies as c (c)}<option value={c} selected={c === 'USD'}>{c}</option
+						{#each data.currencies as c (c)}<option value={c} selected={c === currency}>{c}</option
 							>{/each}
 					</select>
 					<select name="timezone" class="field text-[16px]">
-						{#each data.timezones as t (t)}<option value={t} selected={t === tz}>{t}</option>{/each}
+						{#each zones as t (t)}<option value={t} selected={t === tz}>{t}</option>{/each}
 					</select>
 				</div>
 				{#if form?.action === 'create' && form?.error}

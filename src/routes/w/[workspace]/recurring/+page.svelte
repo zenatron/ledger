@@ -6,6 +6,10 @@
 	import { swipe } from '$lib/actions/swipe';
 	import { page } from '$app/state';
 	import PlanTabs from '$lib/components/PlanTabs.svelte';
+	import RecurringBreakdown from '$lib/components/RecurringBreakdown.svelte';
+	import Segmented from '$lib/components/Segmented.svelte';
+	import { goto } from '$app/navigation';
+	import { NO_CATEGORY } from '$lib/ledger-filters';
 	import RecurrencePicker from '$lib/components/RecurrencePicker.svelte';
 	import { calDateInZone } from '$lib/domain/time/zoned';
 	import { money } from '$lib/actions/money';
@@ -130,7 +134,12 @@
 	// --- View preferences (grouping + sorting), persisted per user ---------------
 	type Rule = (typeof data.rules)[number];
 	type SortBy = 'soonest' | 'priceAsc' | 'priceDesc';
-	type GroupBy = 'cadence' | 'none';
+	type GroupBy = 'cadence' | 'category' | 'none';
+	const GROUP_OPTIONS = [
+		{ value: 'cadence', label: 'Cadence' },
+		{ value: 'category', label: 'Category' },
+		{ value: 'none', label: 'None' }
+	];
 	const PREFS_KEY = 'recurring-view-prefs';
 
 	let groupBy = $state<GroupBy>('cadence');
@@ -150,7 +159,8 @@
 			const raw = localStorage.getItem(PREFS_KEY);
 			if (!raw) return;
 			const p = JSON.parse(raw);
-			if (p.groupBy === 'none' || p.groupBy === 'cadence') groupBy = p.groupBy;
+			if (p.groupBy === 'none' || p.groupBy === 'cadence' || p.groupBy === 'category')
+				groupBy = p.groupBy;
 			if (p.sortBy === 'soonest' || p.sortBy === 'priceAsc' || p.sortBy === 'priceDesc')
 				sortBy = p.sortBy;
 			if (typeof p.showPast === 'boolean') showPast = p.showPast;
@@ -206,16 +216,88 @@
 		{ key: 'yearly', label: 'Yearly' }
 	];
 
-	// Grouped (by cadence) or flat, each bucket sorted by the chosen key; paused
-	// rules always trail in their own group.
+	/*
+	 * The category in view, from the URL like every filter in this app — so a
+	 * "subscriptions" view survives a reload, the back button, and a link sent to
+	 * someone else. A key that names nothing (a category since archived, a
+	 * hand-edited link) is simply no filter.
+	 */
+	const categoryParam = $derived(page.url.searchParams.get('category') ?? '');
+	const selected = $derived(
+		data.categoryCosts.some((c) => c.key === categoryParam) ||
+			data.rules.some((r) => r.categoryKey === categoryParam) ||
+			data.past.some((r) => r.categoryKey === categoryParam)
+			? categoryParam
+			: ''
+	);
+	const costByKey = $derived(new Map(data.categoryCosts.map((c) => [c.key, c])));
+	const categoryByKey = $derived(new Map(data.categories.map((c) => [c.id, c])));
+
+	function selectCategory(key: string) {
+		const next = new URL(page.url);
+		if (key) next.searchParams.set('category', key);
+		else next.searchParams.delete('category');
+		// Replace, not push: flipping between chips is browsing one view, and the
+		// back button should leave the page rather than walk every chip tapped.
+		void goto(next, { replaceState: true, noScroll: true, keepFocus: true });
+	}
+
+	const visibleRules = $derived(
+		selected ? data.rules.filter((r) => r.categoryKey === selected) : data.rules
+	);
+	const visiblePast = $derived(
+		selected ? data.past.filter((r) => r.categoryKey === selected) : data.past
+	);
+
+	/** How a category reads in a heading or on a row. */
+	function categoryOf(key: string) {
+		if (key === NO_CATEGORY) return { name: 'Other', icon: null, color: 'var(--ink-4)' };
+		const c = categoryByKey.get(key);
+		return c
+			? { name: c.name, icon: c.icon, color: c.color }
+			: { name: 'Other', icon: null, color: 'var(--ink-4)' };
+	}
+
+	type Group = {
+		key: string;
+		label: string;
+		icon?: string | null;
+		color?: string;
+		/** Category groups carry their share of the month beside the heading. */
+		monthlyMinor?: bigint;
+		rules: Rule[];
+	};
+
+	// Grouped (by cadence or category) or flat, each group sorted by the chosen
+	// key; paused rules always trail in their own group.
 	const groups = $derived.by(() => {
-		const active = data.rules.filter((r) => r.status !== 'paused');
-		const paused = data.rules.filter((r) => r.status === 'paused');
-		const out: { key: string; label: string; rules: Rule[] }[] = [];
+		const active = visibleRules.filter((r) => r.status !== 'paused');
+		const paused = visibleRules.filter((r) => r.status === 'paused');
+		const out: Group[] = [];
 		if (groupBy === 'cadence') {
 			for (const { key, label } of CADENCE) {
 				const rules = sortRules(active.filter((r) => r.freq === key));
 				if (rules.length) out.push({ key, label, rules });
+			}
+		} else if (groupBy === 'category') {
+			// The breakdown's order — largest first, the remainder last — so the list
+			// reads in the same order as the ribbon above it.
+			const keys = [
+				...data.categoryCosts.map((c) => c.key),
+				...new Set(active.map((r) => r.categoryKey))
+			];
+			for (const key of new Set(keys)) {
+				const rules = sortRules(active.filter((r) => r.categoryKey === key));
+				if (!rules.length) continue;
+				const cat = categoryOf(key);
+				out.push({
+					key,
+					label: cat.name,
+					icon: cat.icon,
+					color: cat.color,
+					monthlyMinor: costByKey.get(key)?.monthlyMinor,
+					rules
+				});
 			}
 		} else if (active.length) {
 			out.push({ key: 'all', label: '', rules: sortRules(active) });
@@ -308,30 +390,21 @@
 						</div>
 					</div>
 
-					<button
-						onclick={() => (draftGroupBy = draftGroupBy === 'cadence' ? 'none' : 'cadence')}
-						role="switch"
-						aria-checked={draftGroupBy === 'cadence'}
-						class="press flex w-full items-center justify-between"
-					>
-						<span class="text-left">
-							<span class="block text-[15px]" style="color: var(--ink)">Group by cadence</span>
-							<span class="block text-[13px]" style="color: var(--ink-3)">
-								Weekly, monthly and yearly under their own headings
-							</span>
-						</span>
-						<span
-							class="relative h-[28px] w-[44px] shrink-0 rounded-full transition-colors"
-							style="background: {draftGroupBy === 'cadence'
-								? 'var(--accent)'
-								: 'var(--surface-hi)'}"
-						>
-							<span
-								class="absolute top-1 left-0 h-5 w-5 rounded-full bg-white shadow-sm transition-transform"
-								style="transform: translateX({draftGroupBy === 'cadence' ? '20px' : '4px'})"
-							></span>
-						</span>
-					</button>
+					<div>
+						<Segmented
+							options={GROUP_OPTIONS}
+							bind:value={draftGroupBy}
+							label="Group by"
+							size="sm"
+						/>
+						<p class="mt-1.5 text-[13px]" style="color: var(--ink-3)">
+							{draftGroupBy === 'category'
+								? 'Rent, subscriptions and the rest under their own headings'
+								: draftGroupBy === 'cadence'
+									? 'Weekly, monthly and yearly under their own headings'
+									: 'One list, in the order above'}
+						</p>
+					</div>
 				</div>
 
 				<div class="h-px" style="background: var(--hairline)"></div>
@@ -345,28 +418,20 @@
 	{/if}
 
 	{#if data.rules.length > 0}
-		<!-- What the active rules add up to, per month and annualized. -->
-		<div class="card flex items-stretch p-4">
-			<div class="flex-1 text-center">
-				<p class="section-label">Per month</p>
-				<Money
-					minor={data.monthlyTotalMinor}
-					currency={data.currency}
-					block
-					class="num mt-1 text-[22px] font-semibold"
-				/>
-			</div>
-			<div class="mx-2 w-px shrink-0" style="background: var(--hairline)"></div>
-			<div class="flex-1 text-center">
-				<p class="section-label">Per year</p>
-				<Money
-					minor={data.yearlyTotalMinor}
-					currency={data.currency}
-					block
-					class="num mt-1 text-[22px] font-semibold"
-				/>
-			</div>
-		</div>
+		<!-- What the active rules add up to, and where it goes. -->
+		<RecurringBreakdown
+			costs={data.categoryCosts}
+			monthlyMinor={data.monthlyTotalMinor}
+			yearlyMinor={data.yearlyTotalMinor}
+			count={data.activeCount}
+			chargedYearMinor={data.chargedYearMinor}
+			chargedFrom={data.chargedFrom}
+			chargedTo={data.chargedTo}
+			currency={data.currency}
+			slug={slug ?? ''}
+			{selected}
+			onselect={selectCategory}
+		/>
 	{/if}
 
 	{#if data.needsConfirmingCount > 0}
@@ -462,7 +527,17 @@
 		</form>
 	{/if}
 
-	{#if data.rules.length === 0 && data.past.length > 0}
+	{#if selected && visibleRules.length === 0}
+		<!-- A category with only ended rules, or a filter left over from a link. -->
+		<p class="card px-4 py-5 text-center text-[15px]" style="color: var(--ink-3)">
+			Nothing running in {categoryOf(selected).name}.
+			<button
+				class="press font-medium"
+				style="color: var(--accent-ink)"
+				onclick={() => selectCategory('')}>Show everything</button
+			>
+		</p>
+	{:else if data.rules.length === 0 && data.past.length > 0}
 		<!-- Everything on file has ended. The full empty state would be wrong here:
 		     you have used this page, and the record is sitting right below. -->
 		<p class="card px-4 py-5 text-center text-[15px]" style="color: var(--ink-3)">
@@ -498,14 +573,32 @@
 					there read as part of the first row.
 				-->
 				{#if g.label}
-					<div class="flex items-center justify-between px-1">
-						<p class="section-label">{g.label}</p>
-						<span
-							class="chip num"
-							style="color: var(--ink-3); background: var(--surface-2)"
-							aria-label="{g.rules.length} {g.rules.length === 1 ? 'charge' : 'charges'}"
-							>{g.rules.length}</span
-						>
+					<div class="flex items-center justify-between gap-3 px-1">
+						<p class="section-label flex min-w-0 items-center gap-1.5">
+							{#if g.color}
+								<span
+									class="h-2 w-2 shrink-0 rounded-full"
+									style="background: {g.color}"
+									aria-hidden="true"
+								></span>
+							{/if}
+							<span class="truncate">{g.label}</span>
+						</p>
+						<span class="flex shrink-0 items-center gap-2">
+							{#if g.monthlyMinor !== undefined}
+								<!-- The group's part of the month, so the headings alone read
+								     as a statement of where the standing money goes. -->
+								<span class="num text-[13px] font-medium" style="color: var(--ink-3)"
+									>{formatMinor(g.monthlyMinor, data.currency)}/mo</span
+								>
+							{/if}
+							<span
+								class="chip num"
+								style="color: var(--ink-3); background: var(--surface-2)"
+								aria-label="{g.rules.length} {g.rules.length === 1 ? 'charge' : 'charges'}"
+								>{g.rules.length}</span
+							>
+						</span>
 					</div>
 				{/if}
 				<div class="card overflow-hidden">
@@ -517,6 +610,7 @@
 							is expanded into its edit form, like the other pages.
 						-->
 						{@const swipeable = r.mine && editing !== r.id}
+						{@const cat = categoryOf(r.categoryKey)}
 						<div
 							class="relative overflow-hidden {i < g.rules.length - 1 ? 'hairline' : ''}"
 							use:swipe={{ width: swipeable ? 176 : 0, enabled: swipeable }}
@@ -579,7 +673,29 @@
 								style="background: var(--surface); touch-action: pan-y"
 							>
 								<div class="flex items-center justify-between gap-3">
-									<div class="min-w-0">
+									<!--
+										The category as a tile, the ledger rows' shape: tinted in its own
+										colour, so a column of them reads as the ribbon above, taken
+										apart. No category is a plain repeat mark, quieter.
+									-->
+									<span
+										class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] text-[18px]"
+										style="background: {r.categoryKey === NO_CATEGORY
+											? 'var(--surface-2)'
+											: `color-mix(in oklab, ${cat.color} 16%, var(--surface-2))`}; box-shadow: inset 0 0 0 0.5px var(--hairline)"
+										title={cat.name}
+										aria-hidden="true"
+									>
+										{#if cat.icon}
+											{cat.icon}
+										{:else}
+											<Repeat
+												class="h-[18px] w-[18px]"
+												style="color: {r.categoryKey === NO_CATEGORY ? 'var(--ink-4)' : cat.color}"
+											/>
+										{/if}
+									</span>
+									<div class="min-w-0 flex-1">
 										<p class="flex items-center gap-1.5 text-[16px]" style="color: var(--ink)">
 											{r.itemName}
 											{#if r.status === 'paused'}
@@ -736,7 +852,7 @@
 		{/each}
 	{/if}
 
-	{#if data.past.length > 0}
+	{#if visiblePast.length > 0}
 		<!--
 			Ended rules, folded away instead of removed. The Income page's past
 			section works the same way: it is the list wanted least often, so it
@@ -751,7 +867,7 @@
 			<span class="flex items-center gap-1.5" style="color: var(--ink-3)">
 				<!-- The same chip the cadence groups carry, so every count on the page reads alike. -->
 				<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
-					>{data.past.length}</span
+					>{visiblePast.length}</span
 				>
 				<ChevronDown
 					class="h-4 w-4 transition-transform duration-200 {showPast ? 'rotate-180' : ''}"
@@ -763,7 +879,7 @@
 				class="card overflow-hidden"
 				transition:slide={{ duration: prefersReducedMotion.current ? 0 : 180 }}
 			>
-				{#each data.past as r, i (r.id)}
+				{#each visiblePast as r, i (r.id)}
 					{@const swipeable = r.mine && restarting !== r.id}
 					{@const charges = `${r.chargeCount} ${r.chargeCount === 1 ? 'charge' : 'charges'}`}
 					<!--
@@ -780,7 +896,7 @@
 						.filter(Boolean)
 						.join(' · ')}
 					<div
-						class="relative overflow-hidden {i < data.past.length - 1 ? 'hairline' : ''}"
+						class="relative overflow-hidden {i < visiblePast.length - 1 ? 'hairline' : ''}"
 						use:swipe={{ width: swipeable ? 88 : 0, enabled: swipeable }}
 					>
 						{#if swipeable}

@@ -1,6 +1,12 @@
 import { error, redirect } from '@sveltejs/kit';
 import { finishLogin } from '$lib/server/auth/oidc';
-import { createSession, setSessionCookie } from '$lib/server/auth/session';
+import {
+	SESSION_COOKIE,
+	createSession,
+	destroySession,
+	hashSessionToken,
+	setSessionCookie
+} from '$lib/server/auth/session';
 import { audit } from '$lib/server/audit';
 import { getDb } from '$lib/server/db';
 import { upsertUserFromOidc } from '$lib/repo/users';
@@ -12,6 +18,9 @@ import { systemClock } from '$lib/infra/time/system-clock';
 import { user } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
+
+/** Refuse the absurd before decoding it; a real avatar is a few hundred KB. */
+const MAX_PICTURE_BYTES = 5 * 1024 * 1024;
 
 export const GET: RequestHandler = async (event) => {
 	const { url, cookies, request, getClientAddress } = event;
@@ -65,9 +74,16 @@ export const GET: RequestHandler = async (event) => {
 	if (identity.picture && stored.avatarSource !== 'custom') {
 		try {
 			// The claim can be a relative path on some IdPs — anchor it to the issuer.
-			const picUrl = new URL(identity.picture, getEnv().POCKET_ID_ISSUER);
+			const issuer = new URL(getEnv().POCKET_ID_ISSUER!);
+			const picUrl = new URL(identity.picture, issuer);
 			const res = await fetch(picUrl, {
-				headers: { authorization: `Bearer ${accessToken}` }
+				// The access token is the IdP's, so it only ever goes back to the IdP.
+				// A picture hosted anywhere else (a Gravatar, a CDN) is fetched without
+				// it — sending it there would hand a live credential to a third party.
+				headers: picUrl.origin === issuer.origin ? { authorization: `Bearer ${accessToken}` } : {},
+				// A login must not hang on a slow picture host; the avatar is optional.
+				signal: AbortSignal.timeout(5_000),
+				redirect: picUrl.origin === issuer.origin ? 'follow' : 'error'
 			});
 			if (!res.ok) {
 				console.log(
@@ -78,8 +94,11 @@ export const GET: RequestHandler = async (event) => {
 						url: picUrl.origin + picUrl.pathname
 					})
 				);
+			} else if (Number(res.headers.get('content-length') ?? 0) > MAX_PICTURE_BYTES) {
+				console.log(JSON.stringify({ level: 'warn', msg: 'oidc: profile picture too large' }));
 			} else {
 				const buf = new Uint8Array(await res.arrayBuffer());
+				if (buf.byteLength > MAX_PICTURE_BYTES) throw new Error('profile picture too large');
 				const derivative = await processAvatar(buf);
 				const blob = await getBlobStore().put(derivative.data, 'webp');
 				await db
@@ -99,11 +118,16 @@ export const GET: RequestHandler = async (event) => {
 		}
 	}
 
-	const session = await createSession(db, stored.id, {
+	// Signing in again replaces whatever session this browser had: the old one
+	// is revoked rather than left valid for the rest of its thirty days.
+	const prior = cookies.get(SESSION_COOKIE);
+	if (prior) await destroySession(db, hashSessionToken(prior));
+
+	const { session, token } = await createSession(db, stored.id, {
 		userAgent: request.headers.get('user-agent'),
 		ip: getClientAddress()
 	});
-	setSessionCookie(cookies, session.id, session.expiresAt);
+	setSessionCookie(cookies, token, session.expiresAt);
 	await audit(event, {
 		action: 'auth.login',
 		workspaceId: null,

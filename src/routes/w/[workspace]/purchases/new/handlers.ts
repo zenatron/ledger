@@ -16,7 +16,12 @@ import { listBuckets } from '$lib/repo/buckets';
 import { refuseBucketCharge } from '$lib/domain/bucket/scope';
 import type { ApprovalPolicy } from '$lib/domain/approval/policy';
 import { listAccounts } from '$lib/repo/accounts';
-import { calDateInZone, zonedTimeToUtc } from '$lib/domain/time/zoned';
+import {
+	calDateInZone,
+	compareCalDates,
+	parseCalDate,
+	zonedTimeToUtc
+} from '$lib/domain/time/zoned';
 import { fromE3, roundToE3 } from '$lib/domain/location/coords';
 import type { PurchasePlace } from '$lib/domain/location/place';
 
@@ -36,7 +41,7 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 	const [categories, members, buckets, accounts] = await Promise.all([
 		listCategories(db, ctx.workspace.id),
 		listMembers(db, ctx.workspace.id),
-		listBuckets(db, ctx.workspace.id),
+		listBuckets(db, ctx.workspace.id, { viewerId: ctx.member.id, now: ctx.deps.clock.now() }),
 		listAccounts(db, ctx.workspace.id)
 	]);
 	// Buckets this member is allowed to spend from. Cosmetic, not the gate:
@@ -166,8 +171,16 @@ export const actions = {
 		let seal;
 		if (sealMemberIds.length > 0) {
 			if (!f.sealUntil) return fail(400, { error: 'Pick when the seal opens' });
-			const until = new Date(`${f.sealUntil}T23:59:59`);
-			if (Number.isNaN(until.getTime())) return fail(400, { error: 'Invalid seal date' });
+			const day = parseCalDate(f.sealUntil);
+			if (!day) return fail(400, { error: 'Invalid seal date' });
+			/*
+			 * The end of that day where the household lives. This read
+			 * `new Date('…T23:59:59')` — the *server's* wall clock, which in a
+			 * container is UTC — so a gift sealed until someone's birthday opened
+			 * at 4pm the day before in California and the next morning in Tokyo.
+			 * 23:59 matches what the MCP tool has always used.
+			 */
+			const until = zonedTimeToUtc(day, 23, 59, ctx.workspace.timezone);
 			seal = { sealedUntil: until, sealedFromMemberIds: sealMemberIds };
 		} else if (f.sealUntil) {
 			return fail(400, { error: 'Pick who the purchase is hidden from' });
@@ -183,15 +196,14 @@ export const actions = {
 		 */
 		let spentAt: Date | undefined;
 		if (f.intent === 'log' && f.spentAt) {
-			const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(f.spentAt);
-			if (!m) return fail(400, { error: 'Invalid purchase date' });
-			const picked = { y: +m[1], m: +m[2], d: +m[3] };
+			const picked = parseCalDate(f.spentAt);
+			if (!picked) return fail(400, { error: 'Invalid purchase date' });
 			const today = calDateInZone(ctx.deps.clock.now(), ctx.workspace.timezone);
-			const toNum = (d: { y: number; m: number; d: number }) => d.y * 10000 + d.m * 100 + d.d;
-			if (toNum(picked) > toNum(today)) {
+			const cmp = compareCalDates(picked, today);
+			if (cmp > 0) {
 				return fail(400, { error: "You can't log a purchase in the future" });
 			}
-			if (toNum(picked) < toNum(today)) {
+			if (cmp < 0) {
 				spentAt = zonedTimeToUtc(picked, 12, 0, ctx.workspace.timezone);
 			}
 		}

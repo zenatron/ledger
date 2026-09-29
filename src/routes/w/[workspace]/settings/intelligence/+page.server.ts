@@ -1,3 +1,5 @@
+import { lookup } from 'node:dns/promises';
+import { sealSecret } from '$lib/server/secrets';
 import { error, fail } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import * as v from 'valibot';
@@ -18,7 +20,14 @@ const ConfigSchema = v.object({
 	apiKey: v.optional(v.string(), '')
 });
 
-function validateEndpoint(endpoint: string): string | null {
+/** Link-local (where cloud metadata lives) and the unspecified address. */
+function isForbiddenAddress(ip: string): boolean {
+	const v4 = ip.replace(/^::ffff:/i, '');
+	if (/^169\.254\./.test(v4) || v4 === '0.0.0.0') return true;
+	return /^fe[89ab][0-9a-f]:/i.test(ip) || ip === '::';
+}
+
+async function validateEndpoint(endpoint: string): Promise<string | null> {
 	let u: URL;
 	try {
 		u = new URL(endpoint);
@@ -29,12 +38,24 @@ function validateEndpoint(endpoint: string): string | null {
 	// Credentials in the URL would sit in the database and ride along on every
 	// fetch; the key field is where secrets belong.
 	if (u.username || u.password) return 'Put any API key in the key field, not the URL';
-	// Link-local is where cloud metadata lives — the one address that turns a
-	// probed endpoint into stolen credentials on a hosted deployment. Loopback
-	// and the private LAN stay allowed: pointing this at an Ollama on your own
-	// machine is the feature.
-	if (/^169\.254\./.test(u.hostname) || u.hostname === '0.0.0.0') {
-		return 'That address is not allowed';
+	/*
+	 * Link-local is where cloud metadata lives — the one address that turns a
+	 * probed endpoint into stolen credentials on a hosted deployment. Loopback
+	 * and the private LAN stay allowed: pointing this at an Ollama on your own
+	 * machine is the feature.
+	 *
+	 * Checked on what the name *resolves to*, not only on how it is spelled:
+	 * `169.254.169.254.nip.io` and friends are ordinary hostnames that answer
+	 * with the metadata address. Redirects are refused at fetch time, which
+	 * closes the other way round this check.
+	 */
+	const host = u.hostname.replace(/^\[|\]$/g, '');
+	if (isForbiddenAddress(host)) return 'That address is not allowed';
+	try {
+		const addrs = await lookup(host, { all: true });
+		if (addrs.some((a) => isForbiddenAddress(a.address))) return 'That address is not allowed';
+	} catch {
+		// Unresolvable now is reported by the connection test, in its own words.
 	}
 	return null;
 }
@@ -97,7 +118,7 @@ export const actions: Actions = {
 
 		if (out.mode !== 'off') {
 			if (!out.endpoint) return fail(400, { error: 'An endpoint URL is required' });
-			const bad = validateEndpoint(out.endpoint);
+			const bad = await validateEndpoint(out.endpoint);
 			if (bad) return fail(400, { error: bad });
 			if (!out.model) return fail(400, { error: 'A model name is required' });
 		}
@@ -111,7 +132,7 @@ export const actions: Actions = {
 				aiEndpoint: cfg.aiEndpoint,
 				aiModel: cfg.aiModel,
 				// Off clears the key so a disabled provider leaves nothing sensitive behind.
-				aiApiKey: cfg.aiMode === 'off' ? null : cfg.aiApiKey
+				aiApiKey: cfg.aiMode === 'off' ? null : sealSecret(cfg.aiApiKey)
 			})
 			.where(eq(workspace.id, locals.workspace!.id));
 		return { ok: true };
@@ -150,7 +171,7 @@ export const actions: Actions = {
 		if (!out.endpoint) {
 			return { test: { ok: false, detail: 'Fill in the endpoint first.' } };
 		}
-		const bad = validateEndpoint(out.endpoint);
+		const bad = await validateEndpoint(out.endpoint);
 		if (bad) return fail(400, { error: bad });
 
 		// For local Ollama, the connection test is the model list itself: if we can

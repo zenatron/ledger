@@ -25,9 +25,17 @@ function sameOrigin(a: string, b: string): boolean {
 }
 
 /**
- * ntfy delivery: plain HTTP POST to {server}/{topic}. Title/Click/Tags travel
- * as headers, the body is the message text. Reliable even where Web Push
- * isn't (Safari tabs, no A2HS).
+ * ntfy delivery, through its JSON publish API: POST {server} with the topic,
+ * title, message and click URL in the body.
+ *
+ * Not the header form (POST {server}/{topic} with Title/Click headers), which
+ * is what this used to send. HTTP header values are bytes, not text: `fetch`
+ * refuses any character above U+00FF outright, so a requester named Анна or
+ * 李 — or any title with an emoji — threw before a byte left the process, and
+ * the catch below logged it as a failure with no status. Names that did fit
+ * (José) went out as Latin-1, which ntfy reads as UTF-8 and garbles. The JSON
+ * body is UTF-8 end to end. Reliable even where Web Push isn't (Safari tabs,
+ * no A2HS).
  */
 export async function sendNtfy(
 	target: NtfyTargetInfo,
@@ -39,23 +47,31 @@ export async function sendNtfy(
 			? { Authorization: `Bearer ${token.value}` }
 			: {};
 	try {
-		const res = await fetch(`${target.serverUrl.replace(/\/$/, '')}/${target.topic}`, {
+		const res = await fetch(target.serverUrl.replace(/\/$/, ''), {
 			method: 'POST',
-			headers: {
-				Title: msg.title,
-				Click: msg.origin + msg.path,
-				Tags: 'moneybag',
-				...auth
-			},
-			body: msg.body,
+			headers: { 'Content-Type': 'application/json', ...auth },
+			body: JSON.stringify({
+				topic: target.topic,
+				title: msg.title,
+				message: msg.body,
+				click: msg.origin + msg.path,
+				tags: ['moneybag']
+			}),
 			signal: AbortSignal.timeout(10_000)
 		});
 		if (!res.ok) {
 			console.log(JSON.stringify({ level: 'warn', msg: 'ntfy: send failed', status: res.status }));
 		}
 		return res.ok;
-	} catch {
-		console.log(JSON.stringify({ level: 'warn', msg: 'ntfy: send failed', status: null }));
+	} catch (e) {
+		console.log(
+			JSON.stringify({
+				level: 'warn',
+				msg: 'ntfy: send failed',
+				status: null,
+				err: (e as Error).message
+			})
+		);
 		return false;
 	}
 }

@@ -4,9 +4,9 @@ import type { Notifier } from '$lib/ports/notifier';
 import { getDb } from '$lib/server/db';
 import { getEnv } from '$lib/server/env';
 
-let instance: Notifier | undefined;
+let instance: (Notifier & { settled(): Promise<void> }) | undefined;
 
-export function getNotifier(): Notifier {
+export function getNotifier(): Notifier & { settled(): Promise<void> } {
 	if (!instance) {
 		const env = getEnv();
 		const webPush =

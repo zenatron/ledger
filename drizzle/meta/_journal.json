@@ -281,6 +281,20 @@
       "when": 1789648498250,
       "tag": "0039_security_event",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790707245267,
+      "tag": "0040_bucket_txn_purchase",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790708076932,
+      "tag": "0041_hash_session_ids",
+      "breakpoints": true
     }
   ]
 }

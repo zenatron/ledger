@@ -1,5 +1,6 @@
 import { bindEndpoint } from '$lib/server/bind';
 import { audit } from '$lib/server/audit';
+import { publishChange } from '$lib/infra/events/bus';
 import * as h from './handlers';
 import type { RequestHandler } from './$types';
 
@@ -15,6 +16,9 @@ export const POST: RequestHandler = async (event) => {
 		.catch(() => null);
 	const res = await post(event);
 	if (res.ok) {
+		// A workspace switch changes what other members' pages show (a section
+		// appears, a field goes away), so their open pages reload too.
+		publishChange(event.locals.workspace!.id);
 		await audit(event, {
 			action: 'workspace.settings_changed',
 			detail: { flag: String(body?.flag), value: body?.value === true }

@@ -21,7 +21,11 @@ declare global {
 			db: Db;
 			deps: AppDeps;
 		}
-		// interface Error {}
+		interface Error {
+			message: string;
+			/** Set by handleError for unexpected failures, so the page can quote it. */
+			errorId?: string;
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

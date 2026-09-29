@@ -1,9 +1,10 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { category, purchase, user, workspaceMember } from '$lib/db/schema';
+import { account, category, merchant, purchase, user, workspaceMember } from '$lib/db/schema';
 import { visibleTo } from '$lib/repo/purchases';
 import { Money } from '$lib/domain/money/money';
 import { systemClock } from '$lib/infra/time/system-clock';
+import { calDateInZone, formatCalDate } from '$lib/domain/time/zoned';
 import type { RequestHandler } from './$types';
 
 /**
@@ -19,25 +20,40 @@ function csvField(value: string): string {
 /** Purchase history export. Seal-filtered like every other read surface. */
 export const GET: RequestHandler = async ({ locals }) => {
 	const now = systemClock.now();
+	const tz = locals.workspace!.timezone;
 	const rows = await getDb()
-		.select({ p: purchase, requester: user.displayName, categoryName: category.name })
+		.select({
+			p: purchase,
+			requester: user.displayName,
+			categoryName: category.name,
+			merchantName: merchant.name,
+			accountName: account.name
+		})
 		.from(purchase)
 		.innerJoin(workspaceMember, eq(purchase.memberId, workspaceMember.id))
 		.innerJoin(user, eq(workspaceMember.userId, user.id))
 		.leftJoin(category, eq(purchase.categoryId, category.id))
+		.leftJoin(merchant, eq(purchase.merchantId, merchant.id))
+		.leftJoin(account, eq(purchase.accountId, account.id))
 		.where(and(eq(purchase.workspaceId, locals.workspace!.id), visibleTo(locals.member!.id, now)))
 		.orderBy(asc(purchase.createdAt));
 
-	const header = 'date,item,state,requester,category,requested,approved,final,currency,note';
+	const header =
+		'date,item,from,state,requester,category,card,requested,approved,final,currency,note';
 	const lines = rows.map((r) => {
 		const amount = (minor: bigint | null) =>
 			minor === null ? '' : Money.of(minor, r.p.currency).toDecimalString();
 		return [
-			(r.p.completedAt ?? r.p.requestedAt ?? r.p.createdAt).toISOString().slice(0, 10),
+			// The calendar date where the household lives, as every screen shows it.
+			// toISOString() gave the UTC date, so an evening purchase west of
+			// Greenwich exported as the next day and landed in the wrong month.
+			formatCalDate(calDateInZone(r.p.completedAt ?? r.p.requestedAt ?? r.p.createdAt, tz)),
 			csvField(r.p.itemName),
+			csvField(r.merchantName ?? ''),
 			r.p.state,
 			csvField(r.requester),
 			csvField(r.categoryName ?? ''),
+			csvField(r.accountName ?? ''),
 			amount(r.p.requestedAmountMinor),
 			amount(r.p.approvedAmountMinor),
 			amount(r.p.finalAmountMinor),

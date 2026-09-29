@@ -1,3 +1,4 @@
+import { isUuid } from '$lib/uuid';
 import { fail } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { getDb } from '$lib/server/db';
@@ -82,7 +83,7 @@ export const actions: Actions = {
 		const { locals, request } = event;
 		const form = await request.formData();
 		const tokenId = String(form.get('tokenId') ?? '');
-		if (!tokenId) return fail(400, { error: 'Missing token' });
+		if (!isUuid(tokenId)) return fail(400, { error: 'That token no longer exists.' });
 		const removed = await revokeToken(getDb(), systemClock.now(), locals.member!.id, tokenId);
 		if (!removed) return fail(400, { error: 'That token no longer exists.' });
 		await audit(event, { action: 'api_token.revoked', detail: { tokenId } });

@@ -27,6 +27,12 @@
 		</div>
 		<h1 class="text-[22px]">{x.t}</h1>
 		<p class="mt-1 text-[15px]" style="color: var(--ink-3)">{x.d}</p>
+		{#if page.error?.errorId}
+			<!-- Quotable, so "it broke" can be matched to the one log line that says why. -->
+			<p class="num mt-3 text-[12px]" style="color: var(--ink-3)">
+				Reference {page.error.errorId.slice(-8)}
+			</p>
+		{/if}
 		<a href="/" class="btn btn-accent mt-6">Go home</a>
 	</div>
 </div>

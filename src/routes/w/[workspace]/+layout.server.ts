@@ -1,11 +1,17 @@
 import { getDb } from '$lib/server/db';
 import { listWorkspacesForUser } from '$lib/repo/workspaces';
+import { decisionQueueIds } from '$lib/repo/purchases';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals, params }) => {
 	// hooks.server.ts guarantees user/workspace/member on /w/ routes.
 	const { user, workspace, member } = locals;
-	const memberships = await listWorkspacesForUser(getDb(), user!.id);
+	const [memberships, decisions] = await Promise.all([
+		listWorkspacesForUser(getDb(), user!.id),
+		// The tab badge. Re-read whenever the page reloads, which live refresh
+		// does on every change — so it moves as requests arrive and are answered.
+		decisionQueueIds(getDb(), { workspaceId: workspace!.id, viewerId: member!.id }, new Date())
+	]);
 	return {
 		user: {
 			id: user!.id,
@@ -33,6 +39,7 @@ export const load: LayoutServerLoad = async ({ locals, params }) => {
 			assistEnabled: workspace!.aiMode !== 'off'
 		},
 		member: { id: member!.id, role: member!.role },
+		decisionCount: decisions.length,
 		workspaces: memberships.map((m) => ({
 			slug: m.workspace.slug,
 			name: m.workspace.name,

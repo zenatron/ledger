@@ -16,6 +16,8 @@ import { eligibleApprovers } from '$lib/domain/approval/evaluate';
 import type { ApprovalPolicy } from '$lib/domain/approval/policy';
 import type { Purchase, TransitionEvent } from '$lib/domain/purchase/purchase';
 import { placeFromColumns, placeToColumns } from '$lib/domain/location/place';
+import { isSealed } from '$lib/domain/visibility/seal';
+import { containsPattern } from './like';
 import type { Clock } from '$lib/ports/clock';
 import type { IdGenerator } from '$lib/ports/id-generator';
 
@@ -168,7 +170,21 @@ export async function loadPurchase(
 	 */
 	const snapshotActive = snapshot.map((a) => a.memberId).filter((id) => activeIds.includes(id));
 
-	const approverIds = [...new Set([...snapshotActive, ...eligible])];
+	/*
+	 * Never anyone the purchase is hidden from, while the seal holds.
+	 *
+	 * Submit already routes around a concealed approver, but the live half of
+	 * the union above reads the requester's policy as it stands, and that policy
+	 * names the partner the gift is for as often as not. Left in, every
+	 * notification that fans out to `approverMemberIds` — an edit sent back for
+	 * approval, an overage, a wake — pushed the item and its price to the one
+	 * person it was sealed from. This set is what every such path reads, so
+	 * this is where the seal has to be honoured.
+	 */
+	const concealed = isSealed(rows[0], opts.now) ? new Set(rows[0].sealedFromMemberIds) : null;
+	const approverIds = [...new Set([...snapshotActive, ...eligible])].filter(
+		(id) => !concealed?.has(id)
+	);
 	return toDomain(rows[0], approverIds);
 }
 
@@ -336,7 +352,7 @@ export async function listPurchases(
 		visibleTo(scope.viewerId, now)
 	];
 	if (opts?.ids) conditions.push(inArray(purchase.id, opts.ids));
-	if (opts?.search) conditions.push(ilike(purchase.itemName, `%${opts.search}%`));
+	if (opts?.search) conditions.push(ilike(purchase.itemName, containsPattern(opts.search)));
 	if (opts?.categoryId) conditions.push(eq(purchase.categoryId, opts.categoryId));
 
 	// A refund is a child row with no photo of its own; show the original's.
@@ -534,4 +550,46 @@ export async function lastCategoryForMerchant(
 		.orderBy(desc(purchase.createdAt))
 		.limit(1);
 	return row?.categoryId ?? null;
+}
+
+/**
+ * The viewer's decision queue: pending requests they may approve, that aren't
+ * their own, and that they can see.
+ *
+ * "May approve" is the same union `listPurchases.canDecide` computes — the
+ * snapshot taken at request time, or the requester's policy as it stands — so
+ * the badge on the tab and the swipe actions in the list agree on every row.
+ * The seal predicate keeps a concealed request out of the count as it keeps it
+ * out of the list: a number that ticks up is itself news.
+ */
+export async function decisionQueueIds(
+	db: Db,
+	scope: { workspaceId: string; viewerId: string },
+	now: Date
+): Promise<string[]> {
+	const rows = await db
+		.select({ id: purchase.id })
+		.from(purchase)
+		.innerJoin(workspaceMember, eq(purchase.memberId, workspaceMember.id))
+		.where(
+			and(
+				eq(purchase.workspaceId, scope.workspaceId),
+				eq(purchase.state, 'pending_approval'),
+				sql`${purchase.memberId} <> ${scope.viewerId}`,
+				visibleTo(scope.viewerId, now),
+				or(
+					sql`exists (
+						select 1 from ${purchaseApprover}
+						where ${purchaseApprover.purchaseId} = ${purchase.id}
+						and ${purchaseApprover.memberId} = ${scope.viewerId}
+					)`,
+					sql`coalesce(
+						${workspaceMember.approvalPolicy} -> 'routing' -> 'approver_ids'
+							@> to_jsonb(${scope.viewerId}::text),
+						false
+					)`
+				)
+			)
+		);
+	return rows.map((r) => r.id);
 }

@@ -243,7 +243,7 @@ describe('a personal bucket', () => {
 			isAllowance: true
 		});
 
-		const listed = await listBuckets(db, ws.workspaceId);
+		const listed = await listBuckets(db, ws.workspaceId, null);
 		const flag = (id: string) => listed.find((b) => b.bucket.id === id)?.bucket.isAllowance;
 		expect(flag(savings.id)).toBe(false);
 		expect(flag(allowance.id)).toBe(true);

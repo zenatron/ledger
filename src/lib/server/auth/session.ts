@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { eq, lte } from 'drizzle-orm';
 import type { Cookies } from '@sveltejs/kit';
 import { dev } from '$app/environment';
@@ -28,14 +28,33 @@ export async function deleteExpiredSessions(db: Db, now = new Date()): Promise<n
 	return removed.length;
 }
 
+/**
+ * What the database stores for a session: a SHA-256 of the cookie, never the
+ * cookie itself.
+ *
+ * The cookie is a bearer credential. Stored as-is, anyone who could read the
+ * session table — a leaked backup, a read-only replica, a stray `pg_dump` —
+ * held a live login for every household member. API tokens have always been
+ * kept this way; sessions now are too. 32 random bytes need no salt or
+ * stretching: there is nothing to guess.
+ */
+export function hashSessionToken(token: string): string {
+	return createHash('sha256').update(token).digest('base64url');
+}
+
+/**
+ * Create a session. Returns the row (whose `id` is the hash) and the `token`
+ * to put in the cookie — the only time the token exists outside the browser.
+ */
 export async function createSession(
 	db: Db,
 	userId: string,
 	meta: { userAgent?: string | null; ip?: string | null; activeWorkspaceId?: string | null }
-): Promise<SessionRow> {
+): Promise<{ session: SessionRow; token: string }> {
 	const now = new Date();
+	const token = randomBytes(32).toString('base64url');
 	const row: SessionRow = {
-		id: randomBytes(32).toString('base64url'),
+		id: hashSessionToken(token),
 		userId,
 		activeWorkspaceId: meta.activeWorkspaceId ?? null,
 		expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
@@ -44,13 +63,19 @@ export async function createSession(
 		ip: meta.ip ?? null
 	};
 	await db.insert(session).values(row);
-	return row;
+	return { session: row, token };
 }
 
+/**
+ * Resolve a cookie to its session. `token` is the cookie value; the row is
+ * found by its hash. Sessions from before hashing were rewritten under their
+ * hash by migration 0041, so they keep working with nobody signed out.
+ */
 export async function validateSession(
 	db: Db,
-	sessionId: string
+	token: string
 ): Promise<{ session: SessionRow; user: SessionUser; renewed: boolean } | null> {
+	const sessionId = hashSessionToken(token);
 	const rows = await db
 		.select({ session, user })
 		.from(session)

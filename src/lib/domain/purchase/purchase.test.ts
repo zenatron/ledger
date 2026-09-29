@@ -8,7 +8,9 @@ import {
 	complete,
 	deny,
 	edit,
+	extendHold,
 	hold,
+	MAX_HOLD_DAYS,
 	markRefunded,
 	needsReapproval,
 	overrideDenial,
@@ -463,6 +465,14 @@ describe('place', () => {
 
 describe('hold / wake', () => {
 	const LATER = new Date('2026-07-05T12:00:00Z');
+
+	it(`refuses a pause past ${MAX_HOLD_DAYS} days, and one that is not a date at all`, () => {
+		const tooLong = new Date(NOW.getTime() + (MAX_HOLD_DAYS + 1) * 86_400_000);
+		expect(() => hold(pending(), 'm-requester', tooLong, NOW)).toThrow(PurchaseStateError);
+		expect(() => hold(pending(), 'm-requester', new Date(NaN), NOW)).toThrow(PurchaseStateError);
+		const slept = hold(pending(), 'm-requester', LATER, NOW).purchase;
+		expect(() => extendHold(slept, 'm-requester', tooLong, NOW)).toThrow(PurchaseStateError);
+	});
 
 	it('wakes a held-approved purchase back to approved, not pending', () => {
 		// The approvers snapshot stays on an approved purchase, so presence of

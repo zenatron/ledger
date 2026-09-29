@@ -6,7 +6,23 @@ import { resolveDeepLink, type DeepLinkPayload } from '$lib/deep-link';
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const CACHE = `assets-${version}`;
-const ASSETS = new Set([...build, ...files]);
+
+/*
+ * What is precached on install — which is to say, downloaded onto every phone
+ * the moment the app is installed or updated, whether it is ever used or not.
+ *
+ * It used to be every file the build emitted: 22 MB, most of it for things a
+ * given household may never touch. Left out, and fetched normally when (if)
+ * they are used:
+ *  - WASM and its data: the barcode decoder, an alpha feature that is off by
+ *    default, and Safari's fallback at that.
+ *  - The PDF reader's worker (2.2 MB), for bill and statement import.
+ *  - The marketing screenshots, which only the manifest's install sheet shows.
+ * The app shell, fonts, icons and every route's code stay, which is what
+ * offline actually needs.
+ */
+const ON_DEMAND = [/\.wasm$/, /\.data$/, /pdf\.worker/, /^\/screenshots\//];
+const ASSETS = new Set([...build, ...files].filter((p) => !ON_DEMAND.some((re) => re.test(p))));
 
 /*
  * The styled offline shell. It lives in static/ so it ships as an ordinary
@@ -74,7 +90,7 @@ sw.addEventListener('fetch', (event) => {
 				const cache = await caches.open(PAGES);
 				try {
 					const fresh = await fetch(event.request);
-					if (fresh.ok) cache.put(event.request, fresh.clone());
+					if (fresh.ok) void cache.put(event.request, fresh.clone()).then(() => trim(cache));
 					return fresh;
 				} catch {
 					const cached = await cache.match(event.request);
@@ -95,6 +111,40 @@ sw.addEventListener('fetch', (event) => {
 			})()
 		);
 	}
+});
+
+/*
+ * Whose pages these are.
+ *
+ * The navigation cache holds whole rendered pages — amounts, names, notes —
+ * and it used to outlive the person who loaded them. On a shared iPad, signing
+ * out and handing it over left the last person's ledger one lost connection
+ * away from the next one, sealed gifts included, because the offline fallback
+ * serves whatever is cached for the URL. So the app tells the worker who is
+ * signed in (or that nobody is), and a change of person empties the cache
+ * before anything else is served from it.
+ */
+const OWNER_KEY = '/__page-owner';
+
+async function setPageOwner(id: string | null): Promise<void> {
+	const cache = await caches.open(PAGES);
+	const current = await (await cache.match(OWNER_KEY))?.text();
+	if (current === (id ?? '')) return;
+	await caches.delete(PAGES);
+	if (id) await (await caches.open(PAGES)).put(OWNER_KEY, new Response(id));
+}
+
+/** Pages visited, newest last; the oldest go once there are more than this. */
+const MAX_PAGES = 60;
+
+async function trim(cache: Cache): Promise<void> {
+	const keys = (await cache.keys()).filter((k) => new URL(k.url).pathname !== OWNER_KEY);
+	for (const k of keys.slice(0, Math.max(0, keys.length - MAX_PAGES))) await cache.delete(k);
+}
+
+sw.addEventListener('message', (event) => {
+	const data = event.data as { type?: string; id?: string | null } | null;
+	if (data?.type === 'page-owner') event.waitUntil(setPageOwner(data.id ?? null));
 });
 
 interface PushPayload extends DeepLinkPayload {

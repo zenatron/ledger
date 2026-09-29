@@ -33,7 +33,12 @@ import {
 	extendHoldPurchase,
 	letGoPurchase
 } from '$lib/application/hold';
-import { calDateInZone, zonedTimeToUtc } from '$lib/domain/time/zoned';
+import {
+	calDateInZone,
+	compareCalDates,
+	parseCalDate,
+	zonedTimeToUtc
+} from '$lib/domain/time/zoned';
 import { addDays } from '$lib/domain/recurrence/rrule';
 import { listEvents, loadPurchase, memberNames, visibleTo } from '$lib/repo/purchases';
 import { listCategories } from '$lib/repo/workspaces';
@@ -55,12 +60,31 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 	// decision (or the request) without staring at this page. Fetched only
 	// when it could matter — a decided purchase has nothing to wait for.
 	const pending = p.state === 'pending_approval';
-	const notifyConfigured = pending
-		? (await listPushSubscriptions(db, [ctx.user.id])).length > 0 ||
-			(await getNtfyTarget(db, ctx.user.id)) !== null
-		: false;
 
-	const [events, names, categories, images, merchants, createdRows] = await Promise.all([
+	/*
+	 * Everything else the page needs, in one wave. These were five sequential
+	 * steps — notification targets, then this batch, then the parent's photo,
+	 * then the bucket, then the merchant — each waiting on the one before
+	 * though none needed its answer.
+	 */
+	const [
+		notifyConfigured,
+		events,
+		names,
+		categories,
+		images,
+		merchants,
+		createdRows,
+		inheritedImages,
+		chargedBucket,
+		merchantRows
+	] = await Promise.all([
+		pending
+			? Promise.all([
+					listPushSubscriptions(db, [ctx.user.id]),
+					getNtfyTarget(db, ctx.user.id)
+				]).then(([subs, ntfy]) => subs.length > 0 || ntfy !== null)
+			: false,
 		listEvents(db, p.id),
 		memberNames(db, [p.memberId, ...p.approverMemberIds, ...p.sealedFromMemberIds]),
 		listCategories(db, ctx.workspace.id),
@@ -89,43 +113,37 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 			.select({ createdAt: purchaseTable.createdAt })
 			.from(purchaseTable)
 			.where(eq(purchaseTable.id, p.id))
-			.limit(1)
+			.limit(1),
+		// A refund owns no photo; borrow the original's. listImages applies the
+		// seal predicate to the parent, so an unreadable parent yields nothing
+		// rather than leaking through the child. Shown only when the purchase has
+		// no photo of its own.
+		p.parentPurchaseId ? listImages(db, scope, p.parentPurchaseId, now) : [],
+		// The bucket this is charged against, if any. Completing the purchase is
+		// what actually withdraws from it, so the page needs the balance to say
+		// up front whether the bucket can cover what's about to be entered.
+		p.bucketId
+			? loadBucket(db, ctx.workspace.id, p.bucketId).then(async (b) =>
+					b
+						? {
+								name: b.name,
+								balanceMinor: await bucketBalance(db, b.id, { viewerId: ctx.member.id, now }),
+								currency: b.currency
+							}
+						: null
+				)
+			: null,
+		p.merchantId
+			? db
+					.select({ name: merchant.name })
+					.from(merchant)
+					.where(eq(merchant.id, p.merchantId))
+					.limit(1)
+			: []
 	]);
 	const createdRow = createdRows[0];
 	const category = categories.find((c) => c.id === p.categoryId) ?? null;
-
-	// A refund owns no photo; borrow the original's. listImages applies the seal
-	// predicate to the parent, so an unreadable parent yields nothing rather than
-	// leaking through the child.
-	const inheritedImages =
-		images.length === 0 && p.parentPurchaseId
-			? await listImages(db, scope, p.parentPurchaseId, now)
-			: [];
-
-	// The bucket this is charged against, if any. Completing the purchase is what
-	// actually withdraws from it, so the page needs the balance to say up front
-	// whether the bucket can cover what's about to be entered.
-	let chargedBucket: { name: string; balanceMinor: bigint; currency: string } | null = null;
-	if (p.bucketId) {
-		const b = await loadBucket(db, ctx.workspace.id, p.bucketId);
-		if (b) {
-			chargedBucket = {
-				name: b.name,
-				balanceMinor: await bucketBalance(db, b.id),
-				currency: b.currency
-			};
-		}
-	}
-
-	let merchantName: string | null = null;
-	if (p.merchantId) {
-		const [m] = await db
-			.select({ name: merchant.name })
-			.from(merchant)
-			.where(eq(merchant.id, p.merchantId))
-			.limit(1);
-		merchantName = m?.name ?? null;
-	}
+	const merchantName: string | null = merchantRows[0]?.name ?? null;
 
 	const mine = p.memberId === ctx.member.id;
 	const sealed = isSealed(p, now);
@@ -212,7 +230,7 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 		})),
 		// Shown under a reversal arrow, and not editable here — it belongs to the
 		// original purchase, which has its own detail page.
-		inheritedImage: inheritedImages[0]?.blobId ?? null,
+		inheritedImage: images.length === 0 ? (inheritedImages[0]?.blobId ?? null) : null,
 		isRefund: p.parentPurchaseId !== null,
 		parentId: p.parentPurchaseId,
 		events: events.map((e) => ({
@@ -374,8 +392,24 @@ export const actions = {
 		const form = await request.formData();
 		const amountRaw = String(form.get('finalAmount') ?? '').trim();
 		const dateRaw = String(form.get('finalDate') ?? '').trim();
-		const at = dateRaw ? new Date(`${dateRaw}T12:00:00`) : ctx.deps.clock.now();
-		if (Number.isNaN(at.getTime())) return fail(400, { error: 'Invalid date' });
+		/*
+		 * Noon on the chosen day in the workspace's zone — the same rule the
+		 * new-purchase form uses for a back-dated log. This used to parse
+		 * `…T12:00:00` on the server's clock (UTC in a container), which put a
+		 * purchase made in Auckland on the following day, and let a future date
+		 * through that the new-purchase form refuses.
+		 */
+		const now = ctx.deps.clock.now();
+		let at = now;
+		if (dateRaw) {
+			const day = parseCalDate(dateRaw);
+			if (!day) return fail(400, { error: 'Invalid date' });
+			const today = calDateInZone(now, ctx.workspace.timezone);
+			const cmp = compareCalDates(day, today);
+			if (cmp > 0) return fail(400, { error: "You can't have bought it in the future" });
+			// Today keeps the precise instant, exactly as the log path does.
+			if (cmp < 0) at = zonedTimeToUtc(day, 12, 0, ctx.workspace.timezone);
+		}
 		return run(() =>
 			completePurchase(ctx.db, ctx.deps, scopeOf(ctx), params.id, {
 				amount: Money.fromDecimal(amountRaw, ctx.workspace.currency),
@@ -389,6 +423,8 @@ export const actions = {
 		const itemName = String(form.get('itemName') ?? '').trim();
 		const amountRaw = String(form.get('amount') ?? '').trim();
 		if (!itemName) return fail(400, { error: 'Item needs a name' });
+		// The same ceiling the new-purchase form holds it to.
+		if (itemName.length > 120) return fail(400, { error: 'Keep the name under 120 characters' });
 		if (!amountRaw) return fail(400, { error: 'How much?' });
 		// Optional fields — only updated if the form carries them, so the
 		// masthead edit (item + amount only) leaves category/note/merchant alone.
@@ -407,16 +443,9 @@ export const actions = {
 			};
 			if (categoryIdRaw !== null) changes.categoryId = String(categoryIdRaw) || null;
 			if (noteRaw !== null) changes.note = String(noteRaw).trim() || null;
-			await editPurchase(ctx.db, ctx.deps, scopeOf(ctx), params.id, changes);
-			if (merchantRaw !== null) {
-				await setPurchaseMerchant(
-					ctx.db,
-					ctx.deps,
-					scopeOf(ctx),
-					params.id,
-					String(merchantRaw).trim() || null
-				);
-			}
+			await editPurchase(ctx.db, ctx.deps, scopeOf(ctx), params.id, changes, {
+				merchantName: merchantRaw === null ? undefined : String(merchantRaw).trim() || null
+			});
 		});
 	},
 

@@ -1,11 +1,48 @@
-import { and, eq, gte, lt, ne, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gte, lt, ne, notInArray, sql, type SQL } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
-import { bucket, bucketTransaction, recurringRule, user, workspaceMember } from '$lib/db/schema';
+import {
+	bucket,
+	bucketTransaction,
+	purchase,
+	recurringRule,
+	user,
+	workspaceMember
+} from '$lib/db/schema';
 import type { Period } from '$lib/domain/analytics/period';
 import { bucketFlows, type BucketFlows } from '$lib/domain/bucket/flows';
 import { zonedTimeToUtc } from '$lib/domain/time/zoned';
 import type { Clock } from '$lib/ports/clock';
 import type { IdGenerator } from '$lib/ports/id-generator';
+import { visibleTo } from './purchases';
+
+/**
+ * Whose eyes a bucket figure is for. Every movement tied to a purchase carries
+ * that purchase's seal, so a figure read *for someone* leaves out movements
+ * whose purchase is hidden from them — the same rule as every other aggregate:
+ * a sealed gift must not be recoverable by differencing a balance.
+ *
+ * `null` is the true ledger balance, and it is only for decisions the system
+ * makes (can this charge overdraw, how much room is left under a goal), never
+ * for something rendered to a person.
+ */
+export type MovementSeal = { viewerId: string; now: Date } | null;
+
+/**
+ * A movement is visible when it belongs to no purchase, or its purchase passes
+ * the viewer's seal filter. `not exists` rather than a join so a movement whose
+ * purchase has since been deleted stays visible, as it did before the link.
+ */
+export function movementVisibleTo(viewerId: string, now: Date): SQL {
+	return sql`(${bucketTransaction.purchaseId} is null or not exists (
+		select 1 from ${purchase}
+		where ${purchase.id} = ${bucketTransaction.purchaseId}
+		and not (${visibleTo(viewerId, now)})
+	))`;
+}
+
+function sealFilter(seal: MovementSeal): SQL | undefined {
+	return seal ? movementVisibleTo(seal.viewerId, seal.now) : undefined;
+}
 
 export type BucketRow = typeof bucket.$inferSelect;
 export type BucketTransactionRow = typeof bucketTransaction.$inferSelect;
@@ -77,7 +114,11 @@ export async function createBucket(
 	return row!;
 }
 
-export async function listBuckets(db: Db, workspaceId: string): Promise<BucketListItem[]> {
+export async function listBuckets(
+	db: Db,
+	workspaceId: string,
+	seal: MovementSeal
+): Promise<BucketListItem[]> {
 	const rows = await db
 		.select({
 			bucket,
@@ -88,7 +129,9 @@ export async function listBuckets(db: Db, workspaceId: string): Promise<BucketLi
 		.from(bucket)
 		.innerJoin(workspaceMember, eq(bucket.memberId, workspaceMember.id))
 		.innerJoin(user, eq(workspaceMember.userId, user.id))
-		.leftJoin(bucketTransaction, eq(bucket.id, bucketTransaction.bucketId))
+		// The seal goes in the join, not the where: a bucket whose only movements
+		// are hidden from this viewer must still be listed, at zero.
+		.leftJoin(bucketTransaction, and(eq(bucket.id, bucketTransaction.bucketId), sealFilter(seal)))
 		.where(and(eq(bucket.workspaceId, workspaceId), ne(bucket.status, 'archived')))
 		.groupBy(bucket.id, workspaceMember.id, user.id)
 		.orderBy(bucket.createdAt);
@@ -248,14 +291,14 @@ export async function addTransaction(
 }
 
 /** Net balance across every bucket — what's actually on hand right now. */
-export async function totalSaved(db: Db, workspaceId: string): Promise<bigint> {
+export async function totalSaved(db: Db, workspaceId: string, seal: MovementSeal): Promise<bigint> {
 	const rows = await db
 		.select({
 			total: sql<string>`coalesce(sum(${bucketTransaction.amountMinor}), 0)`
 		})
 		.from(bucketTransaction)
 		.innerJoin(bucket, eq(bucketTransaction.bucketId, bucket.id))
-		.where(eq(bucket.workspaceId, workspaceId));
+		.where(and(eq(bucket.workspaceId, workspaceId), sealFilter(seal)));
 	return BigInt(rows[0]?.total ?? '0');
 }
 
@@ -264,23 +307,32 @@ export async function totalSaved(db: Db, workspaceId: string): Promise<bigint> {
  * reduced by what's since been spent. "How much you've set aside over time",
  * versus totalSaved's "what's left". The difference is what's been withdrawn.
  */
-export async function lifetimeSaved(db: Db, workspaceId: string): Promise<bigint> {
+export async function lifetimeSaved(
+	db: Db,
+	workspaceId: string,
+	seal: MovementSeal
+): Promise<bigint> {
 	const rows = await db
 		.select({
 			total: sql<string>`coalesce(sum(${bucketTransaction.amountMinor}) filter (where ${bucketTransaction.amountMinor} > 0), 0)`
 		})
 		.from(bucketTransaction)
 		.innerJoin(bucket, eq(bucketTransaction.bucketId, bucket.id))
-		.where(eq(bucket.workspaceId, workspaceId));
+		.where(and(eq(bucket.workspaceId, workspaceId), sealFilter(seal)));
 	return BigInt(rows[0]?.total ?? '0');
 }
 
-/** What a single bucket holds right now. Negative once it's been overdrawn. */
-export async function bucketBalance(db: Db, bucketId: string): Promise<bigint> {
+/** What a single bucket holds right now. Negative once it's been overdrawn.
+ *  Omit `seal` only for a decision; pass the viewer for anything displayed. */
+export async function bucketBalance(
+	db: Db,
+	bucketId: string,
+	seal: MovementSeal = null
+): Promise<bigint> {
 	const rows = await db
 		.select({ total: sql<string>`coalesce(sum(${bucketTransaction.amountMinor}), 0)` })
 		.from(bucketTransaction)
-		.where(eq(bucketTransaction.bucketId, bucketId));
+		.where(and(eq(bucketTransaction.bucketId, bucketId), sealFilter(seal)));
 	return BigInt(rows[0]?.total ?? '0');
 }
 
@@ -300,7 +352,8 @@ export async function bucketFlowsInPeriod(
 	db: Db,
 	workspaceId: string,
 	period: Period,
-	timezone: string
+	timezone: string,
+	seal: MovementSeal
 ): Promise<BucketFlows> {
 	const from = zonedTimeToUtc(period.from, 0, 0, timezone);
 	const to = zonedTimeToUtc(period.toExclusive, 0, 0, timezone);
@@ -313,7 +366,13 @@ export async function bucketFlowsInPeriod(
 			})
 			.from(bucketTransaction)
 			.innerJoin(bucket, eq(bucketTransaction.bucketId, bucket.id))
-			.where(and(eq(bucket.workspaceId, workspaceId), lt(bucketTransaction.createdAt, from)))
+			.where(
+				and(
+					eq(bucket.workspaceId, workspaceId),
+					lt(bucketTransaction.createdAt, from),
+					sealFilter(seal)
+				)
+			)
 			.groupBy(bucketTransaction.bucketId),
 		db
 			.select({
@@ -326,7 +385,8 @@ export async function bucketFlowsInPeriod(
 				and(
 					eq(bucket.workspaceId, workspaceId),
 					gte(bucketTransaction.createdAt, from),
-					lt(bucketTransaction.createdAt, to)
+					lt(bucketTransaction.createdAt, to),
+					sealFilter(seal)
 				)
 			)
 			.orderBy(bucketTransaction.createdAt, bucketTransaction.id)

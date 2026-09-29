@@ -636,9 +636,26 @@ export const bucketTransaction = pgTable(
 		currency: text('currency').notNull(),
 		type: bucketTxnType('type').notNull(),
 		note: text('note'),
+		/**
+		 * The purchase this movement is the money side of — a charge's withdrawal,
+		 * a refund's credit back — or null for money moved by hand or an accrual.
+		 *
+		 * This is what lets a movement inherit its purchase's seal. Without it the
+		 * only link was the note, which carried the item name, so a sealed gift
+		 * charged to a bucket showed up by name on the concealed member's ledger.
+		 * Every read of movements goes through `movementVisibleTo`.
+		 *
+		 * Deliberately not a foreign key: removing a purchase deletes its
+		 * movements explicitly, and a key would only turn an ordering mistake
+		 * there into a failed delete.
+		 */
+		purchaseId: uuid('purchase_id'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
 	},
-	(t) => [index('bucket_txn_bucket_idx').on(t.bucketId)]
+	(t) => [
+		index('bucket_txn_bucket_idx').on(t.bucketId),
+		index('bucket_txn_purchase_idx').on(t.purchaseId)
+	]
 );
 
 export const statementImport = pgTable(

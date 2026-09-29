@@ -403,7 +403,12 @@ export async function fetchWithTimeout(
 	const ctrl = new AbortController();
 	const t = setTimeout(() => ctrl.abort(), timeoutMs);
 	try {
-		return await fetch(url, { ...init, signal: ctrl.signal });
+		// Redirects are refused, not followed. The endpoint is checked when it is
+		// saved (no link-local, no credentials), and following a redirect would
+		// let whatever answers there send this request — API key and all —
+		// somewhere that check never saw, cloud metadata included. No real model
+		// API redirects its completion endpoint.
+		return await fetch(url, { ...init, redirect: 'error', signal: ctrl.signal });
 	} finally {
 		clearTimeout(t);
 	}

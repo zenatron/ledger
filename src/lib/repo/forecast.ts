@@ -45,7 +45,10 @@ export async function safeToSpend(db: Db, scope: ForecastScope, now: Date): Prom
 			upcomingBills(db, scope.workspaceId, period, scope.timezone),
 			plannedSavings(db, scope.workspaceId, period, scope.timezone),
 			purchaseFlows(db, scope, from, to, now),
-			bucketFlowsInPeriod(db, scope.workspaceId, period, scope.timezone),
+			bucketFlowsInPeriod(db, scope.workspaceId, period, scope.timezone, {
+				viewerId: scope.viewerId,
+				now
+			}),
 			budgetRemaining(db, scope, period, now)
 		]);
 

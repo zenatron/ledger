@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { audit } from '$lib/server/audit';
 import * as v from 'valibot';
 import { createWorkspace } from '$lib/application/create-workspace';
+import { isUsableTimeZone } from '$lib/locale-defaults';
 import { JoinWorkspaceError, joinWorkspace } from '$lib/application/join-workspace';
 import { getDb } from '$lib/server/db';
 import { listWorkspacesForUser } from '$lib/repo/workspaces';
@@ -31,7 +32,10 @@ const CreateSchema = v.object({
 	currency: v.pipe(v.string(), v.regex(/^[A-Z]{3}$/, 'Pick a currency')),
 	timezone: v.pipe(
 		v.string(),
-		v.check((tz) => Intl.supportedValuesOf('timeZone').includes(tz), 'Pick a timezone')
+		// Any zone the runtime can use, not only the canonical list: the form
+		// offers the browser's own spelling (UTC, Asia/Calcutta), which the list
+		// may not carry but every date calculation here accepts.
+		v.check(isUsableTimeZone, 'Pick a timezone')
 	),
 	accentColor: v.optional(v.pipe(v.string(), v.regex(/^#[0-9A-Fa-f]{6}$/)))
 });

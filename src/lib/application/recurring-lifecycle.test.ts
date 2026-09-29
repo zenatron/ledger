@@ -6,6 +6,7 @@ import {
 	deleteRule,
 	materializeDueRules,
 	restartRule,
+	resumeRule,
 	RecurringRuleError
 } from '$lib/application/recurring';
 import { Money } from '$lib/domain/money/money';
@@ -143,5 +144,37 @@ describe('deleteRule', () => {
 			deleteRule(h.db, deps, { workspaceId: ws.workspaceId, memberId: other }, id)
 		).rejects.toThrow(/Only the rule owner/);
 		expect(await row(id)).toBeDefined();
+	});
+});
+
+describe('resumeRule on the day a charge is due', () => {
+	// The workspace is in New York; a rule due on the 15th lands at 09:00 there.
+	const DUE_DAY = 'DTSTART=2026-01-15;FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY=15';
+
+	async function pausedRule(at: Date) {
+		h = await makeTestDb();
+		const ws = await seedWorkspace(h.db);
+		const id = await ws.addRecurring({
+			itemName: 'Gym',
+			amountMinor: 40_00n,
+			rrule: DUE_DAY,
+			status: 'paused'
+		});
+		const scope = { workspaceId: ws.workspaceId, memberId: ws.ownerMemberId };
+		const clockDeps = { ...deps, clock: { now: () => at } };
+		await resumeRule(h.db, clockDeps, scope, id);
+		return (await row(id)).nextOccurrenceAt!;
+	}
+
+	it("keeps today's charge when resumed before it was due", async () => {
+		// 07:00 in New York on the 15th.
+		const next = await pausedRule(new Date('2026-06-15T11:00:00Z'));
+		expect(next.toISOString()).toBe('2026-06-15T13:00:00.000Z');
+	});
+
+	it("skips today's charge when resumed after it was due", async () => {
+		// 15:00 in New York on the 15th.
+		const next = await pausedRule(new Date('2026-06-15T19:00:00Z'));
+		expect(next.toISOString()).toBe('2026-07-15T13:00:00.000Z');
 	});
 });

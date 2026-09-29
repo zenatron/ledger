@@ -52,6 +52,12 @@ import type { IdGenerator } from '$lib/ports/id-generator';
 import type { Notifier } from '$lib/ports/notifier';
 import { announcePurchaseChange } from '$lib/application/notify-dispatch';
 import { checkBudgetsForPurchase } from '$lib/application/budget-alerts';
+import {
+	assertAccountInWorkspace,
+	assertCategoryInWorkspace,
+	MERCHANT_NAME_MAX
+} from '$lib/application/references';
+import { isUuid } from '$lib/uuid';
 
 export class PurchaseNotFoundError extends Error {
 	constructor() {
@@ -79,6 +85,9 @@ async function findOrCreateMerchant(
 	workspaceId: string,
 	name: string
 ): Promise<string | null> {
+	if (name.trim().length > MERCHANT_NAME_MAX) {
+		throw new PurchaseStateError(`Keep the name under ${MERCHANT_NAME_MAX} characters`);
+	}
 	const normalized = normalizeMerchantName(name);
 	if (normalized.length === 0) return null;
 	const [existing] = await tx
@@ -223,6 +232,8 @@ export async function submitPurchase(
 		if (!cmd.amount.isPositive) {
 			throw new PurchaseStateError('Amount must be positive');
 		}
+		await assertCategoryInWorkspace(tx, scope.workspaceId, cmd.categoryId);
+		await assertAccountInWorkspace(tx, scope.workspaceId, cmd.accountId);
 
 		const merchantId = cmd.merchantName
 			? await findOrCreateMerchant(tx, deps, scope.workspaceId, cmd.merchantName)
@@ -262,6 +273,7 @@ export async function submitPurchase(
 		// an MCP token all arrive here, and only here is it enforced.
 		let bucketWouldOverdraw = false;
 		if (cmd.bucketId) {
+			if (!isUuid(cmd.bucketId)) throw new PurchaseStateError('Bucket not found');
 			const [bkt] = await tx
 				.select({
 					id: bucket.id,
@@ -493,6 +505,7 @@ export async function refundPurchase(
 				currency: amount.currency,
 				type: 'adjustment',
 				note: `Refund: ${p.itemName}`,
+				purchaseId: child.id,
 				createdAt: now
 			});
 		}
@@ -531,9 +544,9 @@ export const RECENT_DELETE_HOURS = 72;
  * refunds against it can be removed — the latter takes its refunds with it, and
  * removing a refund un-refunds its parent when that leaves it fully paid again.
  *
- * Money any deleted row moved in or out of a bucket is put back with a
- * compensating adjustment rather than deleting the original transaction (linked
- * only by note) — the same pattern refundPurchase uses. `finalAmountMinor`
+ * Money any deleted row moved in or out of a bucket is undone: movements linked
+ * to it by `purchase_id` are deleted along with it, and a legacy movement tied
+ * only by its note gets a compensating adjustment instead. `finalAmountMinor`
  * already carries the right sign (a spend is positive, a refund negative), so
  * crediting it back undoes whatever that row did. Child rows have no FK cascade,
  * so we clear them by hand.
@@ -607,8 +620,24 @@ export async function deletePurchase(
 			...children
 		];
 
-		// Put back what each removed row moved through a bucket.
+		/*
+		 * Undo what each removed row moved through a bucket.
+		 *
+		 * A movement that names its purchase is deleted with it: the purchase is
+		 * being erased as a mistake, and a compensating row left behind would carry
+		 * the item name onto the ledger with nothing to seal it — a deleted gift
+		 * would reappear, by name, to the person it was hidden from. Only movements
+		 * written before that link existed (tied by nothing but a note) still get
+		 * the old compensating adjustment.
+		 */
+		const ids = removed.map((r) => r.id);
+		const linked = await tx
+			.delete(bucketTransaction)
+			.where(inArray(bucketTransaction.purchaseId, ids))
+			.returning({ purchaseId: bucketTransaction.purchaseId });
+		const undone = new Set(linked.map((l) => l.purchaseId));
 		for (const r of removed) {
+			if (undone.has(r.id)) continue;
 			if (r.bucketId && r.finalAmountMinor !== null && r.finalAmountMinor !== 0n) {
 				await tx.insert(bucketTransaction).values({
 					id: deps.ids.newId(),
@@ -663,7 +692,6 @@ export async function deletePurchase(
 			}
 		}
 
-		const ids = removed.map((r) => r.id);
 		await tx.delete(purchaseImage).where(inArray(purchaseImage.purchaseId, ids));
 		await tx.delete(purchaseApprover).where(inArray(purchaseApprover.purchaseId, ids));
 		await tx.delete(approvalEvent).where(inArray(approvalEvent.purchaseId, ids));
@@ -719,22 +747,34 @@ export async function setPurchaseMerchant(
 			{ forUpdate: true, now }
 		);
 		if (!p) throw new PurchaseNotFoundError();
-		if (p.memberId !== scope.memberId) {
-			throw new PurchaseStateError('Only the requester can change the merchant');
-		}
-		const merchantId = merchantName
-			? await findOrCreateMerchant(tx, deps, scope.workspaceId, merchantName)
-			: null;
-		if (merchantId === p.merchantId) return;
-		await tx.update(purchaseTable).set({ merchantId }).where(eq(purchaseTable.id, p.id));
-		await appendEvent(tx, deps.ids, p.id, {
-			fromState: p.state,
-			toState: p.state,
-			actorMemberId: scope.memberId,
-			reason: merchantId ? 'merchant updated' : 'merchant cleared',
-			amountSnapshot: null,
-			at: now
-		});
+		await applyMerchant(tx, deps, scope, p, merchantName, now);
+	});
+}
+
+/** The merchant change itself, inside a caller's transaction and lock. */
+async function applyMerchant(
+	tx: Db,
+	deps: Deps,
+	scope: Scope,
+	p: Purchase,
+	merchantName: string | null,
+	now: Date
+) {
+	if (p.memberId !== scope.memberId) {
+		throw new PurchaseStateError('Only the requester can change the merchant');
+	}
+	const merchantId = merchantName
+		? await findOrCreateMerchant(tx, deps, scope.workspaceId, merchantName)
+		: null;
+	if (merchantId === p.merchantId) return;
+	await tx.update(purchaseTable).set({ merchantId }).where(eq(purchaseTable.id, p.id));
+	await appendEvent(tx, deps.ids, p.id, {
+		fromState: p.state,
+		toState: p.state,
+		actorMemberId: scope.memberId,
+		reason: merchantId ? 'merchant updated' : 'merchant cleared',
+		amountSnapshot: null,
+		at: now
 	});
 }
 
@@ -844,6 +884,7 @@ export async function recategorizePurchase(
 			throw new PurchaseStateError('Only the requester can recategorize a purchase');
 		}
 		if (p.categoryId === categoryId) return null;
+		await assertCategoryInWorkspace(tx, scope.workspaceId, categoryId);
 		if (p.state === 'draft' || p.state === 'pending_approval' || p.state === 'approved') {
 			const r = edit(p, scope.memberId, { categoryId }, now);
 			await applyTransition(tx, deps.ids, r.purchase, r.event);
@@ -952,7 +993,9 @@ async function withPurchase(
 	scope: Scope,
 	purchaseId: string,
 	fn: (p: Purchase, thresholdPct: number) => ReturnType<typeof approve>,
-	after?: (tx: Db, deps: Deps, purchase: Purchase) => Promise<void>
+	after?: (tx: Db, deps: Deps, purchase: Purchase) => Promise<void>,
+	/** Runs in the same transaction after the transition, whatever the state. */
+	alongside?: (tx: Db, purchase: Purchase) => Promise<void>
 ): Promise<void> {
 	const now = deps.clock.now();
 	const result = await db.transaction(async (tx) => {
@@ -973,6 +1016,7 @@ async function withPurchase(
 		if (r.purchase.state === 'completed' && r.purchase.bucketId && after) {
 			await after(tx, deps, r.purchase);
 		}
+		if (alongside) await alongside(tx, r.purchase);
 		return r;
 	});
 	await announcePurchaseChange(db, deps.notifier, result.purchase, result.event);
@@ -1113,15 +1157,35 @@ export async function completePurchase(
 	);
 }
 
+/**
+ * Edit the substance of a purchase, and optionally its merchant with it.
+ *
+ * One transaction for both. The detail page's editor saves item, amount and
+ * merchant from a single form, and this used to run as two separate writes —
+ * a merchant that failed its check left the amount already changed and the
+ * purchase already sent back for approval, from a save the person was told had
+ * failed.
+ */
 export async function editPurchase(
 	db: Db,
 	deps: Deps,
 	scope: Scope,
 	purchaseId: string,
-	changes: PurchaseEdit
+	changes: PurchaseEdit,
+	opts: { merchantName?: string | null } = {}
 ) {
-	await withPurchase(db, deps, scope, purchaseId, (p) =>
-		edit(p, scope.memberId, changes, deps.clock.now())
+	if (changes.categoryId)
+		await assertCategoryInWorkspace(db, scope.workspaceId, changes.categoryId);
+	await withPurchase(
+		db,
+		deps,
+		scope,
+		purchaseId,
+		(p) => edit(p, scope.memberId, changes, deps.clock.now()),
+		undefined,
+		opts.merchantName !== undefined
+			? (tx, p) => applyMerchant(tx, deps, scope, p, opts.merchantName!, deps.clock.now())
+			: undefined
 	);
 }
 
@@ -1136,6 +1200,7 @@ export async function withdrawFromBucket(tx: Db, deps: Deps, p: Purchase): Promi
 		currency: p.finalAmount.currency,
 		type: 'withdrawal',
 		note: p.itemName,
+		purchaseId: p.id,
 		createdAt: p.completedAt ?? deps.clock.now()
 	});
 }

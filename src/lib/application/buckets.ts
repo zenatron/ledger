@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, or } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
-import { bucket, workspace } from '$lib/db/schema';
+import { bucket, workspace, workspaceMember } from '$lib/db/schema';
 import type { Clock } from '$lib/ports/clock';
 import type { IdGenerator } from '$lib/ports/id-generator';
 import {
@@ -65,9 +65,12 @@ export async function materializeBucketAccruals(db: Db, deps: Deps): Promise<num
 		})
 		.from(bucket)
 		.innerJoin(workspace, eq(bucket.workspaceId, workspace.id))
+		// A disabled member's buckets stand still; see setMemberStatus.
+		.innerJoin(workspaceMember, eq(bucket.memberId, workspaceMember.id))
 		.where(
 			and(
 				eq(bucket.status, 'active'),
+				eq(workspaceMember.status, 'active'),
 				or(isNull(bucket.nextAccrualAt), lte(bucket.nextAccrualAt, now))
 			)
 		);

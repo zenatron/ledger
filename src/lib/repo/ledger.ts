@@ -1,8 +1,23 @@
-import { and, count, eq, gte, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	count,
+	eq,
+	gte,
+	ilike,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { unionAll } from 'drizzle-orm/pg-core';
 import type { Db } from '$lib/db/types';
 import { bucket, bucketTransaction, merchant, purchase } from '$lib/db/schema';
 import { listPurchases, visibleTo, type PurchaseListItem } from './purchases';
+import { movementVisibleTo } from './buckets';
+import { containsPattern } from './like';
 
 /**
  * The ledger: purchases and bucket movements on one timeline.
@@ -54,6 +69,8 @@ export interface LedgerOpts {
 	memberId?: string;
 	/** Only purchases known to be on this card. */
 	accountId?: string;
+	/** Only charges a recurring rule generated — what the Plan page links to. */
+	recurringOnly?: boolean;
 	/** Instants, half-open [from, to). Convert from calendar dates with
 	 *  periodBoundsUtc so the boundary matches the analytics page exactly. */
 	from?: Date;
@@ -112,15 +129,15 @@ export async function listLedger(
 	];
 	// Match the item name or the merchant it was bought from — the merchant is
 	// left-joined below so this OR can see merchant.name.
-	if (opts.search) {
-		purchaseWhere.push(
-			or(ilike(purchase.itemName, `%${opts.search}%`), ilike(merchant.name, `%${opts.search}%`))!
-		);
+	const pattern = opts.search ? containsPattern(opts.search) : null;
+	if (pattern) {
+		purchaseWhere.push(or(ilike(purchase.itemName, pattern), ilike(merchant.name, pattern))!);
 	}
 	if (opts.categoryId) purchaseWhere.push(eq(purchase.categoryId, opts.categoryId));
 	if (opts.uncategorized) purchaseWhere.push(isNull(purchase.categoryId));
 	if (opts.memberId) purchaseWhere.push(eq(purchase.memberId, opts.memberId));
 	if (opts.accountId) purchaseWhere.push(eq(purchase.accountId, opts.accountId));
+	if (opts.recurringOnly) purchaseWhere.push(isNotNull(purchase.recurringRuleId));
 	if (opts.bbox) {
 		const lat = sql`coalesce(${purchase.latE3}, ${merchant.latE3})`;
 		const lng = sql`coalesce(${purchase.lngE3}, ${merchant.lngE3})`;
@@ -172,6 +189,8 @@ export async function listLedger(
 		!opts.uncategorized &&
 		!opts.memberId &&
 		!opts.accountId &&
+		// A bucket movement is not a charge any rule made.
+		!opts.recurringOnly &&
 		// Nobody stood anywhere to set money aside, so a geographic filter excludes
 		// movements the same way a category filter does — by construction.
 		!opts.bbox &&
@@ -200,16 +219,17 @@ export async function listLedger(
 	let keys: { kind: string; id: string; at: string }[];
 	let total: number;
 	if (wantMovements) {
-		const movementWhere: SQL[] = [eq(bucket.workspaceId, scope.workspaceId)];
+		// A charge's movement carries its purchase's seal: without this, a gift
+		// charged to a bucket showed on the concealed member's ledger by name, and
+		// searching for it found it.
+		const movementWhere: SQL[] = [
+			eq(bucket.workspaceId, scope.workspaceId),
+			movementVisibleTo(scope.viewerId, now)
+		];
 		if (opts.from) movementWhere.push(gte(bucketTransaction.createdAt, opts.from));
 		if (opts.to) movementWhere.push(lt(bucketTransaction.createdAt, opts.to));
-		if (opts.search) {
-			movementWhere.push(
-				or(
-					ilike(bucket.name, `%${opts.search}%`),
-					ilike(bucketTransaction.note, `%${opts.search}%`)
-				)!
-			);
+		if (pattern) {
+			movementWhere.push(or(ilike(bucket.name, pattern), ilike(bucketTransaction.note, pattern))!);
 		}
 		const movementKeys = db
 			.select({

@@ -436,6 +436,23 @@ export function edit(
 }
 
 /**
+ * The longest a purchase may sleep. The picker tops out at two weeks; this is
+ * the ceiling for anything that arrives another way (an MCP call, a hand-made
+ * post), where an unbounded number of days once overflowed into an invalid
+ * date and failed at the database instead of here.
+ */
+export const MAX_HOLD_DAYS = 30;
+
+function assertHoldUntil(until: Date, now: Date) {
+	if (Number.isNaN(until.getTime()) || until.getTime() <= now.getTime()) {
+		throw new PurchaseStateError('The pause has to end in the future');
+	}
+	if (until.getTime() > now.getTime() + MAX_HOLD_DAYS * 86_400_000) {
+		throw new PurchaseStateError(`A pause can last at most ${MAX_HOLD_DAYS} days`);
+	}
+}
+
+/**
  * "Sleep on it." PENDING_APPROVAL → HELD, paused until `until`. Either the
  * requester (a self-imposed cooling-off) or a designated approver ("let's think
  * about it") may set it — the caller checks which. Approvers are preserved so
@@ -445,9 +462,7 @@ export function hold(p: Purchase, actorMemberId: string, until: Date, now: Date)
 	// From pending (a request awaiting a decision) or approved (a fresh buy you
 	// want to sleep on before spending). Waking restores whichever it was.
 	assertState(p, ['pending_approval', 'approved'], 'sleep on');
-	if (until.getTime() <= now.getTime()) {
-		throw new PurchaseStateError('The pause has to end in the future');
-	}
+	assertHoldUntil(until, now);
 	return {
 		purchase: { ...p, state: 'held', heldUntil: until, heldBy: actorMemberId },
 		event: event(p, 'held', actorMemberId, now, 'put to sleep', null)
@@ -462,9 +477,7 @@ export function extendHold(
 	now: Date
 ): TransitionResult {
 	assertState(p, ['held'], 'extend the pause on');
-	if (until.getTime() <= now.getTime()) {
-		throw new PurchaseStateError('The pause has to end in the future');
-	}
+	assertHoldUntil(until, now);
 	return {
 		purchase: { ...p, heldUntil: until },
 		event: event(p, 'held', actorMemberId, now, 'wait more', null)

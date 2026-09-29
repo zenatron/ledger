@@ -88,7 +88,7 @@ async function buildBriefing(
 		categoryBreakdown(db, scope, thisMonth, now),
 		memberBreakdown(db, scope, thisMonth, now),
 		incomeInPeriod(db, ws.id, thisMonth, scope.timezone, today),
-		bucketFlowsInPeriod(db, ws.id, thisMonth, scope.timezone),
+		bucketFlowsInPeriod(db, ws.id, thisMonth, scope.timezone, { viewerId: scope.viewerId, now }),
 		safeToSpend(db, scope, now),
 		// The question's own month, when it named one: totals, categories, members.
 		focus && !isFocusCurrent
@@ -281,7 +281,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		const period = timeToPeriod(parsed.period, now, scope.timezone, ws.weekStartDay);
 		const total = await periodTotal(db, scope, period, now);
 		const income = await incomeInPeriod(db, ws.id, period, scope.timezone, today);
-		const bucket = await bucketFlowsInPeriod(db, ws.id, period, scope.timezone);
+		const bucket = await bucketFlowsInPeriod(db, ws.id, period, scope.timezone, {
+			viewerId: scope.viewerId,
+			now
+		});
 		const savings = bucket.setAsideMinor;
 		const net = income - total - savings + bucket.releasedMinor;
 		const pct = income > 0n ? Number((net * 1000n) / income) / 10 : 0;

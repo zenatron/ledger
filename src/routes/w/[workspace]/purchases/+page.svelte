@@ -32,6 +32,7 @@
 	import { maskAmount } from '$lib/domain/visibility/discretion';
 	import { NO_CATEGORY } from '$lib/ledger-filters';
 	import { toastError } from '$lib/toast-state.svelte';
+	import { groupByDay } from '$lib/ledger-days';
 	let { data } = $props();
 	let slug = $derived(page.params.workspace);
 
@@ -55,6 +56,7 @@
 	const from = $derived(page.url.searchParams.get('from') ?? '');
 	const to = $derived(page.url.searchParams.get('to') ?? '');
 	const bbox = $derived(page.url.searchParams.get('bbox') ?? '');
+	const recurringOnly = $derived(page.url.searchParams.get('recurring') === '1');
 	const activeQuery = $derived(page.url.searchParams.get('q') ?? '');
 	let showFilter = $state(false);
 
@@ -97,6 +99,10 @@
 					: (data.categories.find((c) => c.id === category)?.name ?? 'Category');
 			out.push({ key: 'category', label: name, clear: { category: '' } });
 		}
+		// Arriving from the Plan page's category view: only what rules charged.
+		if (recurringOnly) {
+			out.push({ key: 'recurring', label: 'Recurring charges', clear: { recurring: '' } });
+		}
 		// Arriving from a bubble on the map or a "By place" row narrows the list
 		// hard — often to three rows out of a month. Without a chip naming it, that
 		// reads as a ledger that lost your data. The server also drops bucket
@@ -131,6 +137,8 @@
 	let feedPending = $state(true);
 	let awaitingPending = $state(true);
 	let awaitingRows = $state<Entry[]>([]);
+	let decideRows = $state<Entry[]>([]);
+	let waitingRows = $state<Entry[]>([]);
 	let sleepingRows = $state<Entry[]>([]);
 	let f = $state<Forecast | undefined>(undefined);
 	let runway = $state<Runway | undefined>(undefined);
@@ -178,6 +186,15 @@
 				if (run !== runToken) return;
 				awaitingPending = false;
 			}
+		);
+		data.queues.then(
+			(v) => {
+				if (run !== runToken) return;
+				decideRows = v.decide;
+				waitingRows = v.waiting;
+			},
+			// No skeleton, like sleeping: the sections appear once they have rows.
+			() => {}
 		);
 		data.sleeping.then(
 			(v) => {
@@ -287,7 +304,14 @@
 	}
 
 	function clearFilters() {
-		void navigateWith({ category: '', member: '', from: '', to: '', basis: '' });
+		void navigateWith({
+			category: '',
+			member: '',
+			from: '',
+			to: '',
+			basis: '',
+			recurring: ''
+		});
 	}
 
 	// The "Bucket activity" toggle is remembered per user: it's a lasting
@@ -360,8 +384,20 @@
 	};
 
 	type P = Extract<Entry, { kind: 'purchase' }>;
+	/*
+	 * Pending requests, three ways. On the default view they split by whose move
+	 * it is — yours to answer, or yours waiting on someone — each served whole
+	 * by the server. Under a search or filter you want the matching rows, not a
+	 * to-do list, so they fall back to one section read off the results.
+	 */
+	const showQueues = $derived(!hasFilters && !activeQuery);
+	const decideItems = $derived(decideRows.filter(isPurchase));
+	const waitingItems = $derived(waitingRows.filter(isPurchase));
+	const queued = $derived(new Set([...decideItems, ...waitingItems].map((p) => p.id)));
 	const pending = $derived(
-		filtered.filter((e): e is P => isPurchase(e) && e.state === 'pending_approval')
+		showQueues
+			? []
+			: filtered.filter((e): e is P => isPurchase(e) && e.state === 'pending_approval')
 	);
 
 	// Confirmation shown before a swipe-to-decide finalizes — it surfaces the
@@ -398,11 +434,20 @@
 	const showSleeping = $derived(!hasFilters && !activeQuery && sleepingItems.length > 0);
 	const rest = $derived(
 		filtered.filter((e) => {
-			if (isPurchase(e) && e.state === 'pending_approval') return false;
+			if (showQueues && queued.has(e.id)) return false;
+			// Someone else's request, waiting on a third person: nothing for you to
+			// do, so it reads as ordinary history, with its Pending chip.
+			if (!showQueues && isPurchase(e) && e.state === 'pending_approval') return false;
 			if (showSleeping && isPurchase(e) && e.state === 'held') return false;
 			if (showConfirm && isPurchase(e) && e.state === 'approved' && e.mine) return false;
 			return true;
 		})
+	);
+
+	// The Recent list, cut into the household's days. `now` is taken per render
+	// of the list, so "Today" rolls over when the list next changes.
+	const restDays = $derived(
+		groupByDay(rest, { timezone: data.workspace.timezone, now: new Date() })
 	);
 
 	/** "3 days left" · "tomorrow" · "ready". */
@@ -518,7 +563,11 @@
 			const res = await fetch(`/w/${slug}/purchases/data?${qs}`);
 			if (!res.ok) throw new Error(String(res.status));
 			const json = await res.json();
-			items = [...items, ...json.entries];
+			// Paging is by offset, so a purchase someone adds while you read pushes
+			// the page boundary down one, and the next page starts with a row you
+			// already have. Kept once: a repeated key is an error in a keyed list.
+			const have = new Set(items.map((e) => e.id));
+			items = [...items, ...(json.entries as Entry[]).filter((e) => !have.has(e.id))];
 			hasMore = json.hasMore;
 			if (typeof json.total === 'number') total = json.total;
 		} catch {
@@ -561,9 +610,9 @@
 			<Landmark class="h-[16px] w-[16px]" style="color: {m.bucketColor ?? 'var(--seal)'}" />
 		</span>
 		<div class="min-w-0 flex-1">
-			<!-- Read the direction off the sign, not the type. A refund against a
-			     bucket-charged purchase is a credit stored as a 'withdrawal' row, and
-			     labelling it "Taken from" next to a +$40 was simply untrue. -->
+			<!-- Read the direction off the sign, not the type. Refunds are credited
+			     back as 'adjustment' now, but older ones were stored as positive
+			     'withdrawal' rows, and "Taken from" next to a +$40 was simply untrue. -->
 			<p class="truncate text-[15px]" style="color: var(--ink-2)">
 				{m.amountMinor < 0n ? 'Taken from' : m.type === 'accrual' ? 'Set aside' : 'Added to'}
 				{m.bucketName}
@@ -1241,7 +1290,7 @@
 				<SkeletonRow index={i} chip last={i === 3} />
 			{/each}
 		</div>
-	{:else if filtered.length === 0}
+	{:else if filtered.length === 0 && (!showQueues || queued.size === 0)}
 		<div class="mt-6 px-6 py-10 text-center">
 			<div
 				class="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-[22px]"
@@ -1284,6 +1333,37 @@
 			{/if}
 		</div>
 	{:else}
+		{#if showQueues && decideItems.length > 0}
+			<div class="mt-2 mb-1 flex items-center justify-between px-1">
+				<p class="section-label" style="color: var(--pending)">Needs your decision</p>
+				<span
+					class="chip num"
+					style="color: var(--pending); background: color-mix(in oklab, var(--pending) 12%, transparent)"
+					>{decideItems.length}</span
+				>
+			</div>
+			<div class="mb-6">
+				{#each decideItems as p, i (p.id)}
+					{@render row(p, i === decideItems.length - 1)}
+				{/each}
+			</div>
+		{/if}
+
+		{#if showQueues && waitingItems.length > 0}
+			<!-- Quieter than the queue above: nothing here is yours to do. -->
+			<div class="mt-2 mb-1 flex items-center justify-between px-1">
+				<p class="section-label">Waiting on others</p>
+				<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
+					>{waitingItems.length}</span
+				>
+			</div>
+			<div class="mb-6">
+				{#each waitingItems as p, i (p.id)}
+					{@render row(p, i === waitingItems.length - 1)}
+				{/each}
+			</div>
+		{/if}
+
 		{#if pending.length > 0}
 			<div class="mt-2 mb-1 flex items-center justify-between px-1">
 				<p class="section-label" style="color: var(--pending)">Awaiting a decision</p>
@@ -1368,16 +1448,29 @@
 		{/if}
 
 		{#if rest.length > 0}
-			<p class="section-label mb-1 px-1">Recent</p>
 			<div>
-				{#each rest as e, i (e.id)}
-					{#if e.kind === 'movement'}
-						{@render movementRow(e, i === rest.length - 1)}
-					{:else}
-						{@render row(e, i === rest.length - 1)}
-					{/if}
+				{#each restDays as day (day.key)}
+					<!--
+						A dated rule, like a statement's. Sticky under the app header, so
+						the day you're reading stays named as its rows scroll past.
+					-->
+					<div class="day-rule" style="top: var(--header-h)">
+						<p class="section-label">{day.label}</p>
+						{#if day.spentMinor !== 0n}
+							<span class="num text-[13px] font-medium" style="color: var(--ink-3)"
+								>{formatMinor(day.spentMinor, data.currency)}</span
+							>
+						{/if}
+					</div>
+					{#each day.rows as e, i (e.id)}
+						{#if e.kind === 'movement'}
+							{@render movementRow(e, i === day.rows.length - 1)}
+						{:else}
+							{@render row(e, i === day.rows.length - 1)}
+						{/if}
+					{/each}
 				{/each}
-				<!-- The page size is 20, but four placeholders carry the message as
+				<!-- A page is 20 rows, but four placeholders carry the message as
 				     well as twenty would; a skeleton list as long as the content it
 				     imitates is theatre. -->
 				{#if loadingMore}
@@ -1400,6 +1493,24 @@
 </div>
 
 <style>
+	/* A day's heading: the overline on the left, what settled that day on the
+	   right, a hairline under both. Painted in paper so rows scroll beneath it
+	   rather than through it. */
+	.day-rule {
+		position: sticky;
+		z-index: 5;
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		margin: 0 -0.25rem;
+		padding: 1.1rem 0.5rem 0.4rem;
+		background: var(--paper);
+		box-shadow: 0 0.5px 0 var(--hairline-strong);
+	}
+	.day-rule:first-child {
+		padding-top: 0.35rem;
+	}
+
 	/* Filter chips: rounded, tactile, quick state transition. Selected/unselected
 	   colors are set inline (SELECTED/UNSELECTED) so the same class serves both. */
 	.chip-btn {

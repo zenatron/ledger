@@ -35,6 +35,20 @@ export function swipe(node: HTMLElement, opts: SwipeOptions) {
 	// The element that actually translates. Falls back to the container itself.
 	const content = node.querySelector<HTMLElement>('[data-swipe-content]') ?? node;
 
+	/*
+	 * The action layer sits flush beneath the content's right edge, inside a
+	 * rounded card that clips both. Where the two edges coincide the browser
+	 * anti-aliases them together, and a hairline of the action colour (the red
+	 * of Deny or End) showed down the right of every row at rest. Clipping the
+	 * layer's last pixel removes the shared edge; a pixel of a 88px button is
+	 * nothing anyone sees once the row is open.
+	 */
+	for (const layer of node.children) {
+		if (layer !== content && layer instanceof HTMLElement) {
+			layer.style.clipPath = 'inset(0 1px 0 0)';
+		}
+	}
+
 	let startX = 0;
 	let startY = 0;
 	let dir: 'none' | 'h' | 'v' = 'none';

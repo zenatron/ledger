@@ -4,13 +4,18 @@ import { and, eq } from 'drizzle-orm';
 import { toDiscretionMode } from '$lib/domain/visibility/discretion';
 import { purchase } from '$lib/db/schema';
 import { listLedger } from '$lib/repo/ledger';
-import { listPurchases } from '$lib/repo/purchases';
+import { decisionQueueIds, listPurchases } from '$lib/repo/purchases';
 import { safeToSpend, forecastMonths } from '$lib/repo/forecast';
 import { toLedgerView } from '$lib/ledger-view';
 import { listCategories, listMembers } from '$lib/repo/workspaces';
 import { ledgerOptsFromUrl } from '$lib/ledger-query';
 
-const LIMIT = 200;
+/**
+ * The first page. Two hundred rows used to arrive with every load — and every
+ * live refresh — as HTML and hydration data, most of it below the fold of a
+ * phone. Fifty covers a busy household's month; "Show more" pages the rest.
+ */
+const LIMIT = 50;
 
 export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 	// Also depend on the workspace param so a switch always re-runs this load,
@@ -96,6 +101,40 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		);
 	})();
 
+	/*
+	 * The two sides of a pending request, each served whole.
+	 *
+	 * They used to be one "Awaiting a decision" section read off the paged feed,
+	 * which mixed the requests *you* have to answer with your own requests
+	 * waiting on someone else — two different jobs, one of them yours — and a
+	 * request older than the first page never appeared in it at all.
+	 */
+	const queues = (async () => {
+		const [decideIds, waitingIds] = await Promise.all([
+			decisionQueueIds(db, scope, now),
+			db
+				.select({ id: purchase.id })
+				.from(purchase)
+				.where(
+					and(
+						eq(purchase.workspaceId, ws.id),
+						eq(purchase.state, 'pending_approval'),
+						eq(purchase.memberId, ctx.member.id)
+					)
+				)
+				.then((rows) => rows.map((r) => r.id))
+		]);
+		const hydrate = async (ids: string[]) =>
+			ids.length === 0
+				? []
+				: (await listPurchases(db, scope, now, { ids }))
+						.map((pp) => toLedgerView({ kind: 'purchase' as const, ...pp }, viewCtx))
+						// Oldest first: the longest wait is the one to answer first.
+						.sort((a, b) => a.at.localeCompare(b.at));
+		const [decide, waiting] = await Promise.all([hydrate(decideIds), hydrate(waitingIds)]);
+		return { decide, waiting };
+	})();
+
 	// "Sleep on it": everything paused in the workspace, its own to-do.
 	const sleeping = (async () => {
 		const sleepingIds = await db
@@ -118,6 +157,7 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 	return {
 		feed,
 		awaiting,
+		queues,
 		sleeping,
 		// Harmony's number: Safe to Spend this month, seal-scoped to the viewer —
 		// and the months after this one, a quiet forward look under the headline.

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import Segmented from '$lib/components/Segmented.svelte';
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
@@ -23,8 +24,9 @@
 	let pushError: string | null = $state(null);
 	let showA2hs = $state(false);
 
-	let ntfyServerUrl = $state(data.ntfy.serverUrl);
-	let ntfyTopic = $state(data.ntfy.topic);
+	// Seeded once, deliberately: the form's draft. Re-seeded below after a save.
+	let ntfyServerUrl = $state(untrack(() => data.ntfy.serverUrl));
+	let ntfyTopic = $state(untrack(() => data.ntfy.topic));
 
 	// Re-sync from server only after a successful ntfy save — never after a test
 	// (which doesn't write) or on initial load (the $state init handles that).

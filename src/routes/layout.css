@@ -34,7 +34,8 @@
 	   on paper and surface, in both themes. ink-3 is the floor: any text a person is
 	   meant to read stops here. --ink-4 sits at ~3:1 — below AA for body text, so it
 	   is NON-TEXT ONLY (icon glyphs, dividers, disabled affordances, the receding
-	   bottom-nav labels) where 3:1 is the right bar. Don't set readable text to it. */
+	   bottom-nav icons) where 3:1 is the right bar. Don't set readable text to it —
+	   the nav's labels once were, and were the one text on the page below AA. */
 	--ink: light-dark(oklch(0.245 0.021 62), oklch(0.95 0.01 84));
 	--ink-2: light-dark(oklch(0.4 0.021 62), oklch(0.81 0.011 84));
 	--ink-3: light-dark(oklch(0.52 0.016 64), oklch(0.67 0.012 84));

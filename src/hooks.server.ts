@@ -1,6 +1,12 @@
 import { building } from '$app/environment';
-import { error, redirect, type Handle, type ServerInit } from '@sveltejs/kit';
-import { getDb } from '$lib/server/db';
+import {
+	error,
+	redirect,
+	type Handle,
+	type HandleServerError,
+	type ServerInit
+} from '@sveltejs/kit';
+import { closeDb, getDb } from '$lib/server/db';
 import { runMigrations } from '$lib/server/db/migrate';
 import { getEnv } from '$lib/server/env';
 import {
@@ -26,7 +32,10 @@ import { sweepExpiredShares } from '$lib/repo/shares';
 import { deleteExpiredSessions } from '$lib/server/auth/session';
 import { systemClock } from '$lib/infra/time/system-clock';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
+import { isMalformedInputError } from '$lib/server/db/errors';
 import { serverDeps } from '$lib/server/deps';
+import { openSecret } from '$lib/server/secrets';
+import { getNotifier } from '$lib/server/notify';
 import { user } from '$lib/db/schema';
 import { eq } from 'drizzle-orm';
 
@@ -71,169 +80,96 @@ export const init: ServerInit = async () => {
 		}
 	};
 
+	/*
+	 * Each job is independent: one failing must not stop the rest, and each
+	 * reports only when it did something. A table rather than nine copies of
+	 * the same try/catch, so a new job can't be added without its logging.
+	 */
+	const jobs: { name: string; done: string; run: () => Promise<number> }[] = [
+		{
+			name: 'unseal',
+			done: 'seals opened',
+			run: () => unsealDuePurchases(getDb(), serverDeps())
+		},
+		{
+			name: 'recurring',
+			done: 'recurring generated',
+			run: () => materializeDueRules(getDb(), serverDeps())
+		},
+		{ name: 'nudge', done: 'nudges sent', run: () => nudgeStaleRequests(getDb(), serverDeps()) },
+		{ name: 'holds', done: 'holds ready', run: () => releaseDueHolds(getDb(), serverDeps()) },
+		{
+			name: 'budget alerts',
+			done: 'budget alerts sent',
+			run: () => checkBudgetAlerts(getDb(), serverDeps())
+		},
+		{
+			name: 'safe-to-spend alerts',
+			done: 'safe-to-spend alerts sent',
+			run: () => sendSafeToSpendAlerts(getDb(), serverDeps())
+		},
+		{
+			name: 'summaries',
+			done: 'summaries sent',
+			run: () => sendDueSummaries(getDb(), serverDeps())
+		},
+		{
+			name: 'bucket accrual',
+			done: 'bucket accruals',
+			run: () => materializeBucketAccruals(getDb(), serverDeps())
+		},
+		{
+			name: 'share cleanup',
+			done: 'shares expired',
+			run: () => sweepExpiredShares(getDb(), serverDeps().clock.now())
+		},
+		{
+			name: 'session cleanup',
+			done: 'sessions expired',
+			run: () => deleteExpiredSessions(getDb())
+		}
+	];
+
 	const runSweep = async () => {
-		const deps = serverDeps();
-		try {
-			const opened = await unsealDuePurchases(getDb(), deps);
-			if (opened > 0) {
-				console.log(JSON.stringify({ level: 'info', msg: 'sweep: seals opened', count: opened }));
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({ level: 'error', msg: 'sweep: unseal failed', err: (e as Error).message })
-			);
-		}
-		try {
-			const made = await materializeDueRules(getDb(), deps);
-			if (made > 0) {
-				console.log(
-					JSON.stringify({ level: 'info', msg: 'sweep: recurring generated', count: made })
-				);
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: recurring failed',
-					err: (e as Error).message
-				})
-			);
-		}
-		try {
-			const nudged = await nudgeStaleRequests(getDb(), deps);
-			if (nudged > 0) {
-				console.log(JSON.stringify({ level: 'info', msg: 'sweep: nudges sent', count: nudged }));
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({ level: 'error', msg: 'sweep: nudge failed', err: (e as Error).message })
-			);
-		}
-		try {
-			const ready = await releaseDueHolds(getDb(), deps);
-			if (ready > 0) {
-				console.log(JSON.stringify({ level: 'info', msg: 'sweep: holds ready', count: ready }));
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({ level: 'error', msg: 'sweep: holds failed', err: (e as Error).message })
-			);
-		}
-		try {
-			const alerts = await checkBudgetAlerts(getDb(), deps);
-			if (alerts > 0) {
-				console.log(
-					JSON.stringify({ level: 'info', msg: 'sweep: budget alerts sent', count: alerts })
-				);
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: budget alerts failed',
-					err: (e as Error).message
-				})
-			);
-		}
-		try {
-			const stsAlerts = await sendSafeToSpendAlerts(getDb(), deps);
-			if (stsAlerts > 0) {
+		for (const job of jobs) {
+			try {
+				const count = await job.run();
+				if (count > 0) {
+					console.log(JSON.stringify({ level: 'info', msg: `sweep: ${job.done}`, count }));
+				}
+			} catch (e) {
 				console.log(
 					JSON.stringify({
-						level: 'info',
-						msg: 'sweep: safe-to-spend alerts sent',
-						count: stsAlerts
+						level: 'error',
+						msg: `sweep: ${job.name} failed`,
+						err: (e as Error).message
 					})
 				);
 			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: safe-to-spend alerts failed',
-					err: (e as Error).message
-				})
-			);
-		}
-		try {
-			const summaries = await sendDueSummaries(getDb(), deps);
-			if (summaries > 0) {
-				console.log(
-					JSON.stringify({ level: 'info', msg: 'sweep: summaries sent', count: summaries })
-				);
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: summaries failed',
-					err: (e as Error).message
-				})
-			);
-		}
-		try {
-			const accrued = await materializeBucketAccruals(getDb(), deps);
-			if (accrued > 0) {
-				console.log(
-					JSON.stringify({ level: 'info', msg: 'sweep: bucket accruals', count: accrued })
-				);
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: bucket accrual failed',
-					err: (e as Error).message
-				})
-			);
-		}
-		try {
-			const sweptShares = await sweepExpiredShares(getDb(), deps.clock.now());
-			if (sweptShares > 0) {
-				console.log(
-					JSON.stringify({ level: 'info', msg: 'sweep: shares expired', count: sweptShares })
-				);
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: share cleanup failed',
-					err: (e as Error).message
-				})
-			);
-		}
-		try {
-			const dropped = await deleteExpiredSessions(getDb());
-			if (dropped > 0) {
-				console.log(
-					JSON.stringify({ level: 'info', msg: 'sweep: sessions expired', count: dropped })
-				);
-			}
-		} catch (e) {
-			console.log(
-				JSON.stringify({
-					level: 'error',
-					msg: 'sweep: session cleanup failed',
-					err: (e as Error).message
-				})
-			);
 		}
 	};
-	await sweep();
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
 	const schedule = () => {
 		if (stopped) return;
 		timer = setTimeout(() => void sweep().finally(schedule), SWEEP_INTERVAL_MS);
 	};
-	schedule();
+	// The first sweep runs in the background, not before the server answers. It
+	// sends notifications to third-party hosts, and a slow push service used to
+	// hold the whole app — healthcheck included — behind it on every boot.
+	void sweep().finally(schedule);
 
 	// Without this the pending timer keeps the process alive past SIGTERM and
-	// the container waits out Docker's 10s kill timeout on every deploy.
+	// the container waits out Docker's 10s kill timeout on every deploy. The
+	// pool is drained too, so in-flight queries finish rather than being cut.
 	const shutdown = () => {
 		stopped = true;
 		if (timer) clearTimeout(timer);
+		// Deliveries run after their request has answered and read the database
+		// as they go, so they finish before the pool is closed under them.
+		void getNotifier()
+			.settled()
+			.finally(() => closeDb());
 	};
 	process.once('SIGTERM', shutdown);
 	process.once('SIGINT', shutdown);
@@ -304,7 +240,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 			// Keep the cookie's expiry in step with sliding renewal — only when it
 			// actually moved, which is at most once per half-TTL.
 			if (hit.renewed && cookieSafe) {
-				setSessionCookie(event.cookies, hit.session.id, hit.session.expiresAt);
+				// The cookie keeps the token; the row id is only its hash.
+				setSessionCookie(event.cookies, sid, hit.session.expiresAt);
 			}
 			// A session presented by a different device than it was issued to is
 			// what a stolen cookie looks like. Recorded, not refused: a browser
@@ -355,13 +292,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 				})
 				.returning();
 		}
-		const sess = await createSession(getDb(), devUser.id, {
+		const { session: sess, token } = await createSession(getDb(), devUser.id, {
 			userAgent: event.request.headers.get('user-agent'),
 			ip: event.getClientAddress()
 		});
 		event.locals.user = devUser;
 		event.locals.session = sess;
-		setSessionCookie(event.cookies, sess.id, sess.expiresAt);
+		setSessionCookie(event.cookies, token, sess.expiresAt);
 		// If on the landing page, redirect to welcome so the user can set up.
 		if (event.url.pathname === '/') redirect(303, '/welcome');
 	}
@@ -372,12 +309,68 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const ctx = await findWorkspaceForMember(getDb(), match[1], event.locals.user.id);
 		// 404, not 403: don't reveal which workspace slugs exist.
 		if (!ctx) error(404, 'Not found');
-		event.locals.workspace = ctx.workspace;
+		// Stored encrypted when SECRETS_KEY is set; opened once, here, so no
+		// route ever sees ciphertext or has to know it could.
+		event.locals.workspace = { ...ctx.workspace, aiApiKey: openSecret(ctx.workspace.aiApiKey) };
 		event.locals.member = ctx.member;
 		if (event.locals.session && event.locals.session.activeWorkspaceId !== ctx.workspace.id) {
 			await setActiveWorkspace(getDb(), event.locals.session.id, ctx.workspace.id);
 		}
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+	for (const [name, value] of SECURITY_HEADERS) {
+		if (response.headers.has(name)) continue;
+		try {
+			response.headers.set(name, value);
+		} catch {
+			// A Response passed through from fetch() has immutable headers; it is
+			// someone else's bytes (a map tile) and carries its own.
+		}
+	}
+	return response;
+};
+
+/**
+ * Headers every response carries, alongside the CSP SvelteKit sets.
+ *
+ * - nosniff: blobs are served by id with a declared type; a browser must not
+ *   second-guess it into something executable.
+ * - Referrer-Policy same-origin: URLs here name workspaces and purchases, and
+ *   none of that should ride along to the one outside link a note contains.
+ * - Permissions-Policy: the camera (receipts, barcodes) and location (places)
+ *   are the app's own to ask for; nothing embedded may, and the rest is off.
+ */
+const SECURITY_HEADERS: [string, string][] = [
+	['X-Content-Type-Options', 'nosniff'],
+	['Referrer-Policy', 'same-origin'],
+	['Permissions-Policy', 'camera=(self), geolocation=(self), microphone=(), payment=(), usb=()'],
+	['Cross-Origin-Opener-Policy', 'same-origin']
+];
+
+/**
+ * Anything a route didn't handle, logged as one JSON line like the rest of the
+ * server's output, with an id the error page shows so a report can be matched
+ * to its line. The message sent to the browser is generic: a stack or a SQL
+ * statement is for the operator, not for whoever hit the error.
+ *
+ * A malformed id that got past the handler bindings is still the caller's
+ * input, not a fault, so it is logged at warn and not as an error.
+ */
+export const handleError: HandleServerError = ({ error: err, event, status, message }) => {
+	const id = uuidv7.newId();
+	const malformed = isMalformedInputError(err);
+	console.log(
+		JSON.stringify({
+			level: malformed || status < 500 ? 'warn' : 'error',
+			msg: malformed ? 'request: malformed input' : 'request: unhandled error',
+			errorId: id,
+			status,
+			method: event.request.method,
+			route: event.route.id,
+			err: err instanceof Error ? err.message : String(err),
+			stack: !malformed && err instanceof Error ? err.stack : undefined
+		})
+	);
+	return { message: malformed ? 'Not found' : message, errorId: id };
 };

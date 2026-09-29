@@ -45,7 +45,10 @@ export async function sendWebPush(
 					privateKey: config.privateKey
 				},
 				TTL: 24 * 3600,
-				urgency: 'high'
+				urgency: 'high',
+				// The library sets no timeout of its own, so a push service that
+				// accepts the connection and never answers held the send forever.
+				timeout: 10_000
 			}
 		);
 		return 'ok';

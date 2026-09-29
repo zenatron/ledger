@@ -1,0 +1,98 @@
+name: CI
+
+# Every push and pull request, before anything ships.
+#
+# The only workflow used to be the demo deploy, so tests ran on main after the
+# fact and never on a branch — and lint and the Playwright flows (approval,
+# sealing, places: the ones that guard privacy) never ran in CI at all.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, types, unit tests, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      # Retried for the same reason as in demo.yml: bun's tarball extraction
+      # fails intermittently on the larger packages.
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if bun install --frozen-lockfile; then exit 0; fi
+            echo "bun install failed (attempt $attempt) — retrying"
+            rm -rf node_modules
+            sleep 5
+          done
+          exit 1
+
+      - run: bun run lint
+      - run: bun run check
+      - run: bun run test
+      # The build is where the demo/production split is enforced (PGlite
+      # stubbed out, the __DEMO__ branches deleted), so it is checked too.
+      - run: bun run build
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-24.04
+    needs: check
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: root
+          POSTGRES_PASSWORD: mysecretpassword
+          POSTGRES_DB: local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U root -d local"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if bun install --frozen-lockfile; then exit 0; fi
+            rm -rf node_modules
+            sleep 5
+          done
+          exit 1
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run Playwright
+        env:
+          E2E_DATABASE_URL: postgres://root:mysecretpassword@localhost:5432/local
+        run: bun run test:e2e
+
+      - name: Keep the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

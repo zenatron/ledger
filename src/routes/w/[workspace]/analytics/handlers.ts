@@ -36,15 +36,36 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 	const scope = { workspaceId: ws.id, viewerId: ctx.member.id, timezone: ws.timezone };
 	const today = calDateInZone(now, ws.timezone);
 	const weekStartDay = ws.weekStartDay;
+	// Bucket figures are seal-scoped like every other number on this page.
+	const seal = { viewerId: ctx.member.id, now };
 
 	// Shared with the map, so stepping the period on one screen means exactly
 	// what it means on the other. See server/analytics-period.
 	const { period, target, cfg } = periodFromUrl(url, { timezone: ws.timezone, weekStartDay }, now);
 
 	const trendFn = period === 'year' ? monthlyTrend : dailyTrend;
-	const trend = await trendFn(db, scope, cfg.queryPeriod, now);
 
+	// Lifetime, not period-scoped: running totals for the workspace.
+	// Income has no stored lifetime figure — recurring entries are rrule
+	// templates expanded at query time — so it's summed over the whole range the
+	// app admits data for.
+	const allTime = yearPeriod({ y: EARLIEST, m: 1, d: 1 });
+	allTime.toExclusive = { y: today.y + 1, m: 1, d: 1 };
+
+	/*
+	 * One wave, not three. Nothing below depends on anything else below — the
+	 * trend was awaited on its own, then this batch, then the lifetime figures —
+	 * so the page paid three round trips of latency for no reason. The pool
+	 * still bounds how many run at once.
+	 */
 	const [
+		trend,
+		verdicts,
+		earnedMinor,
+		savedMinor,
+		onHandMinor,
+		memberRows,
+		memberIncome,
 		total,
 		prevTotal,
 		categories,
@@ -58,6 +79,16 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		places,
 		hasPlaces
 	] = await Promise.all([
+		trendFn(db, scope, cfg.queryPeriod, now),
+		verdictTotals(db, scope, now),
+		incomeInPeriod(db, ws.id, allTime, ws.timezone, today),
+		lifetimeSaved(db, ws.id, seal),
+		// What the buckets hold right now, as opposed to what went into them this
+		// period — the line under net position is answering "how much have I got
+		// put by?", which is a balance, not a flow.
+		totalSaved(db, ws.id, seal),
+		listMembers(db, ws.id),
+		memberIncomeBreakdown(db, ws.id, cfg.queryPeriod, ws.timezone, today),
 		periodTotal(db, scope, cfg.queryPeriod, now),
 		periodTotal(db, scope, cfg.prevPeriod, now),
 		categoryBreakdown(db, scope, cfg.queryPeriod, now),
@@ -68,7 +99,7 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		listCategories(db, ws.id),
 		incomeInPeriod(db, ws.id, cfg.queryPeriod, ws.timezone, today),
 		incomeInPeriod(db, ws.id, cfg.prevPeriod, ws.timezone, today),
-		bucketFlowsInPeriod(db, ws.id, cfg.queryPeriod, ws.timezone),
+		bucketFlowsInPeriod(db, ws.id, cfg.queryPeriod, ws.timezone, seal),
 		period !== 'day'
 			? bucketCategoryTrend(db, scope, cfg.queryPeriod, now, period === 'year' ? 'month' : 'day')
 			: Promise.resolve(new Map()),
@@ -81,29 +112,10 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		ws.locationEnabled ? hasAnyPlace(db, scope, now) : Promise.resolve(false)
 	]);
 
-	// Lifetime, not period-scoped: running totals for the workspace.
-	// Income has no stored lifetime figure — recurring entries are rrule
-	// templates expanded at query time — so it's summed over the whole range the
-	// app admits data for.
-	const allTime = yearPeriod({ y: EARLIEST, m: 1, d: 1 });
-	allTime.toExclusive = { y: today.y + 1, m: 1, d: 1 };
-
 	// Settlement inputs: every active member, their income this period, and
 	// what they paid (the members breakdown above, already seal-filtered to
 	// this viewer). The math itself is domain-pure and runs in the page so the
 	// share basis can be switched without a round trip.
-	const [verdicts, earnedMinor, savedMinor, onHandMinor, memberRows, memberIncome] =
-		await Promise.all([
-			verdictTotals(db, scope, now),
-			incomeInPeriod(db, ws.id, allTime, ws.timezone, today),
-			lifetimeSaved(db, ws.id),
-			// What the buckets hold right now, as opposed to what went into them this
-			// period — the line under net position is answering "how much have I got
-			// put by?", which is a balance, not a flow.
-			totalSaved(db, ws.id),
-			listMembers(db, ws.id),
-			memberIncomeBreakdown(db, ws.id, cfg.queryPeriod, ws.timezone, today)
-		]);
 	const paidByMember = new Map(members.map((m) => [m.memberId, m.totalMinor]));
 	const incomeByMember = new Map(memberIncome.map((m) => [m.memberId, m.incomeMinor]));
 	// Empty when the workspace has settle-up switched off, so the whole section

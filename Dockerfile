@@ -25,8 +25,12 @@ COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/drizzle ./drizzle
-# Blob volume mount point, owned by the unprivileged user the image ships with.
-RUN mkdir -p /data/blobs && chown -R bun:bun /data/blobs /app
+# Volume mount points, owned by the unprivileged user the image ships with. A
+# named volume takes its ownership from the image's directory the first time it
+# is mounted — so a mount point missing here comes up root-owned. That is what
+# happened to /data/tiles: every tile write failed silently and each map pan
+# re-fetched from the tile server, which OSM's usage policy asks you not to do.
+RUN mkdir -p /data/blobs /data/tiles && chown -R bun:bun /data/blobs /data/tiles /app
 USER bun
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \

@@ -39,9 +39,10 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 	void params.workspace;
 	const db = ctx.db;
 	const ws = ctx.workspace;
+	const seal = { viewerId: ctx.member.id, now: ctx.deps.clock.now() };
 	const [rows, lifetimeSavedMinor, members] = await Promise.all([
-		listBuckets(db, ws.id),
-		lifetimeSaved(db, ws.id),
+		listBuckets(db, ws.id, seal),
+		lifetimeSaved(db, ws.id, seal),
 		listMembers(db, ws.id)
 	]);
 	// Everyone a bucket could name, and everyone a scope label has to spell out.
@@ -271,7 +272,9 @@ export const actions = {
 
 		// Their existing allowance, if they have one. Changing it keeps one pot
 		// with one history, so raising an allowance doesn't strand the balance.
-		const buckets = await listBuckets(ctx.db, ws.id);
+		// Balances are unused here — only which bucket is theirs — so the true
+		// ledger is fine.
+		const buckets = await listBuckets(ctx.db, ws.id, null);
 		const existing = buckets.find((b) => b.bucket.memberId === f.memberId && b.bucket.isAllowance);
 		if (existing) {
 			await updateBucket(ctx.db, { workspaceId: ws.id, memberId: f.memberId }, existing.bucket.id, {

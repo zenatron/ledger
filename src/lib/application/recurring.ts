@@ -13,6 +13,19 @@ import type { IdGenerator } from '$lib/ports/id-generator';
 import type { Notifier } from '$lib/ports/notifier';
 import type { ApprovalPolicy } from '$lib/domain/approval/policy';
 import { chargeRefusalMessage, refuseBucketCharge } from '$lib/domain/bucket/scope';
+import { assertCategoryInWorkspace } from '$lib/application/references';
+import { PurchaseStateError } from '$lib/domain/purchase/purchase';
+import { isUuid } from '$lib/uuid';
+
+/** The shared reference check, in this module's own error type. */
+async function assertRuleCategory(db: Db, workspaceId: string, categoryId: string | null) {
+	try {
+		await assertCategoryInWorkspace(db, workspaceId, categoryId);
+	} catch (e) {
+		if (e instanceof PurchaseStateError) throw new RecurringRuleError(e.message);
+		throw e;
+	}
+}
 
 /** Recurring charges land at 09:00 workspace-local on their occurrence date. */
 const MATERIALIZE_HOUR = 9;
@@ -60,6 +73,7 @@ export interface CreateRuleCmd {
  * on a bucket that has since closed to its owner.
  */
 async function assertChargableBucket(db: Db, scope: Scope, bucketId: string) {
+	if (!isUuid(bucketId)) throw new RecurringRuleError('Bucket not found');
 	const [bkt] = await db
 		.select({
 			id: bucket.id,
@@ -109,6 +123,7 @@ export async function createRule(
 		throw new RecurringRuleError(`Amount must be positive ${ws.currency}`);
 	}
 	const rec = parseRRule(cmd.rrule); // throws RecurrenceError on bad input
+	await assertRuleCategory(db, scope.workspaceId, cmd.categoryId);
 	if (cmd.bucketId) await assertChargableBucket(db, scope, cmd.bucketId);
 
 	// Normally the first occurrence is today at the earliest — nothing in the
@@ -141,6 +156,7 @@ export async function createRule(
 }
 
 async function loadOwnRule(db: Db, scope: Scope, ruleId: string) {
+	if (!isUuid(ruleId)) throw new RecurringRuleError('Rule not found');
 	const rows = await db
 		.select()
 		.from(recurringRule)
@@ -170,13 +186,26 @@ export async function resumeRule(db: Db, deps: Deps, scope: Scope, ruleId: strin
 		.from(workspace)
 		.where(eq(workspace.id, scope.workspaceId))
 		.limit(1);
-	const next = nextOccurrence(parseRRule(rule.rrule), calDateInZone(now, ws.timezone));
+	/*
+	 * "Missed" is decided by the clock, not the calendar: today's occurrence
+	 * counts as missed only once its 09:00 has passed. Reading from today (as
+	 * this did) skipped it outright, so pausing a rule overnight and resuming it
+	 * at breakfast on the day it was due quietly dropped that month's charge.
+	 */
+	const rec = parseRRule(rule.rrule);
+	const today = calDateInZone(now, ws.timezone);
+	let nextAt = zonedTimeToUtc(
+		nextOccurrence(rec, addDays(today, -1)),
+		MATERIALIZE_HOUR,
+		0,
+		ws.timezone
+	);
+	if (nextAt.getTime() <= now.getTime()) {
+		nextAt = zonedTimeToUtc(nextOccurrence(rec, today), MATERIALIZE_HOUR, 0, ws.timezone);
+	}
 	await db
 		.update(recurringRule)
-		.set({
-			status: 'active',
-			nextOccurrenceAt: zonedTimeToUtc(next, MATERIALIZE_HOUR, 0, ws.timezone)
-		})
+		.set({ status: 'active', nextOccurrenceAt: nextAt })
 		.where(eq(recurringRule.id, ruleId));
 }
 
@@ -240,7 +269,10 @@ async function ruleFieldUpdates(
 		}
 		updates.amountMinor = cmd.amount.minor;
 	}
-	if (cmd.categoryId !== undefined) updates.categoryId = cmd.categoryId;
+	if (cmd.categoryId !== undefined) {
+		await assertRuleCategory(db, scope.workspaceId, cmd.categoryId);
+		updates.categoryId = cmd.categoryId;
+	}
 	if (cmd.bucketId !== undefined) {
 		if (cmd.bucketId) await assertChargableBucket(db, scope, cmd.bucketId);
 		updates.bucketId = cmd.bucketId;
@@ -372,7 +404,18 @@ export async function materializeDueRules(db: Db, deps: Deps): Promise<number> {
 		})
 		.from(recurringRule)
 		.innerJoin(workspace, eq(recurringRule.workspaceId, workspace.id))
-		.where(and(eq(recurringRule.status, 'active'), lte(recurringRule.nextOccurrenceAt, now)));
+		// Someone who has been disabled has left the household's books: their
+		// standing charges must not keep landing in the shared ledger every month
+		// with nobody able to confirm or cancel them. Disabling pauses the rules
+		// outright; this is the backstop for any rule that slipped past that.
+		.innerJoin(workspaceMember, eq(recurringRule.memberId, workspaceMember.id))
+		.where(
+			and(
+				eq(recurringRule.status, 'active'),
+				eq(workspaceMember.status, 'active'),
+				lte(recurringRule.nextOccurrenceAt, now)
+			)
+		);
 
 	let generated = 0;
 	for (const { ruleId, tz, catchupMax } of due) {

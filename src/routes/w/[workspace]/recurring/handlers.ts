@@ -1,5 +1,5 @@
 import { fail } from '@sveltejs/kit';
-import { and, count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import * as v from 'valibot';
 import { purchase, recurringRule } from '$lib/db/schema';
 import { Money, InvalidMoneyError } from '$lib/domain/money/money';
@@ -23,40 +23,38 @@ import {
 	type UpdateRuleCmd
 } from '$lib/application/recurring';
 import { listCategories } from '$lib/repo/workspaces';
+import { annualMinor, costByCategory, type CategoryCost } from '$lib/domain/recurrence/cost';
+import { NO_CATEGORY } from '$lib/ledger-filters';
+import { calDateInZone, formatCalDate } from '$lib/domain/time/zoned';
+import { addDays } from '$lib/domain/recurrence/rrule';
+import { periodBoundsUtc } from '$lib/domain/analytics/period';
+import { visibleTo } from '$lib/repo/purchases';
 import { listBuckets } from '$lib/repo/buckets';
 import { refuseBucketCharge } from '$lib/domain/bucket/scope';
 import type { ApprovalPolicy } from '$lib/domain/approval/policy';
 import type { WorkspaceContext } from '$lib/ports/context';
-
-/**
- * A rule's yearly cost in minor units, so we can total across mixed cadences.
- * Weekly rules fire once per listed weekday, so a Mon+Thu rule counts twice a
- * week. Uses the average year (365.25 days) — a display figure, not an invoice.
- */
-function annualMinor(amountMinor: bigint, rec: Recurrence): number {
-	const a = Number(amountMinor);
-	const iv = rec.interval || 1;
-	switch (rec.freq) {
-		case 'daily':
-			return (a * 365.25) / iv;
-		case 'weekly':
-			return (a * (rec.byDay?.length || 1) * 365.25) / (7 * iv);
-		case 'monthly':
-			return (a * 12) / iv;
-		case 'yearly':
-			return a / iv;
-	}
-}
 
 export async function load(ctx: WorkspaceContext, { params }: { params: { workspace: string } }) {
 	// Re-run this workspace-scoped load when the workspace in the URL changes;
 	// a locals-only load declares no such dependency. See +layout.server.ts.
 	void params.workspace;
 	const db = ctx.db;
-	const [rules, categories, buckets, confirmRow, spendRows] = await Promise.all([
+	const now = ctx.deps.clock.now();
+	/*
+	 * "The last 12 months" as calendar days where the household lives — a year
+	 * ago today through today — so the figure and the ledger it links to are cut
+	 * on the same boundaries and the rows add up to the number that was tapped.
+	 */
+	const today = calDateInZone(now, ctx.workspace.timezone);
+	const chargedWindow = { from: addDays(today, -365), to: today };
+	const chargedBounds = periodBoundsUtc(
+		{ from: chargedWindow.from, toExclusive: addDays(today, 1) },
+		ctx.workspace.timezone
+	);
+	const [rules, categories, buckets, confirmRow, spendRows, chargedRows] = await Promise.all([
 		db.select().from(recurringRule).where(eq(recurringRule.workspaceId, ctx.workspace.id)),
 		listCategories(db, ctx.workspace.id),
-		listBuckets(db, ctx.workspace.id),
+		listBuckets(db, ctx.workspace.id, { viewerId: ctx.member.id, now: ctx.deps.clock.now() }),
 		// My recurring charges that landed but still need the real amount recorded —
 		// the ledger's "Confirm what you paid" section is where you clear them.
 		db
@@ -92,18 +90,48 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 					inArray(purchase.state, ['completed', 'refunded'])
 				)
 			)
-			.groupBy(purchase.recurringRuleId)
+			.groupBy(purchase.recurringRuleId),
+		/*
+		 * What rules actually charged in the last twelve months, by category — the
+		 * other half of "what am I spending on subscriptions". The breakdown above
+		 * is the plan, from today's prices; this is what landed, price rises and
+		 * cancelled months included. Grouped by the purchase's own category, which
+		 * is the rule's at the time of the charge.
+		 *
+		 * Seal-scoped even though a rule's charges are never sealed (see above):
+		 * this is a figure shown to a person, and every such figure goes through
+		 * the filter, so a future sealable charge can't slip past it here.
+		 */
+		db
+			.select({
+				categoryId: purchase.categoryId,
+				totalMinor: sql<string>`coalesce(sum(${purchase.finalAmountMinor}), 0)`
+			})
+			.from(purchase)
+			.where(
+				and(
+					eq(purchase.workspaceId, ctx.workspace.id),
+					isNotNull(purchase.recurringRuleId),
+					inArray(purchase.state, ['completed', 'refunded']),
+					gte(purchase.completedAt, chargedBounds.from),
+					lt(purchase.completedAt, chargedBounds.to),
+					visibleTo(ctx.member.id, now)
+				)
+			)
+			.groupBy(purchase.categoryId)
 	]);
 
-	// Household outflow across every active rule, normalized to a common period.
-	let annual = 0;
-	for (const r of rules) {
-		if (r.status !== 'active') continue;
-		try {
-			annual += annualMinor(r.amountMinor, parseRRule(r.rrule));
-		} catch {
-			/* malformed rule — leave it out of the total rather than guess */
-		}
+	// Household outflow across every active rule, normalized to a common period,
+	// and the same figure cut by category: rent and a streaming service are both
+	// "recurring", and bundled together the second disappears into the first.
+	const cost = costByCategory(rules);
+	const categoryById = new Map(categories.map((c) => [c.id, c]));
+	// Keyed like the breakdown: a charge under an archived category counts
+	// toward the uncategorized remainder, as the plan side does.
+	const charged = new Map<string, bigint>();
+	for (const r of chargedRows) {
+		const key = r.categoryId && categoryById.has(r.categoryId) ? r.categoryId : NO_CATEGORY;
+		charged.set(key, (charged.get(key) ?? 0n) + BigInt(r.totalMinor));
 	}
 
 	const bucketNames = new Map(buckets.map((b) => [b.bucket.id, b.bucket.name]));
@@ -125,11 +153,16 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 		const monthlyMinor = parsed
 			? BigInt(Math.round(annualMinor(r.amountMinor, parsed) / 12))
 			: r.amountMinor;
+		// A rule filed under a category since archived keeps it: listCategories
+		// only returns live ones, so an archived category reads as uncategorized
+		// here exactly as it does in the picker and in the breakdown.
+		const cat = r.categoryId ? categoryById.get(r.categoryId) : undefined;
 		return {
 			id: r.id,
 			itemName: r.itemName,
 			amountMinor: r.amountMinor,
 			monthlyMinor,
+			categoryKey: cat ? cat.id : NO_CATEGORY,
 			currency: r.currency,
 			cadence: describe(r.rrule),
 			nextAt: r.nextOccurrenceAt?.toISOString() ?? null,
@@ -189,12 +222,40 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 
 	return {
 		currency: ctx.workspace.currency,
-		monthlyTotalMinor: BigInt(Math.round(annual / 12)),
-		yearlyTotalMinor: BigInt(Math.round(annual)),
+		monthlyTotalMinor: cost.total.monthlyMinor,
+		yearlyTotalMinor: cost.total.yearlyMinor,
+		activeCount: cost.total.count,
+		/*
+		 * The breakdown the page's ribbon and chips draw. Keyed by `NO_CATEGORY`
+		 * for the uncategorized remainder — the same sentinel the ledger's filter
+		 * uses — so a key is never null in the URL. A category the view can't
+		 * name (archived) folds into that remainder.
+		 */
+		categoryCosts: foldArchived(cost.categories, categoryById).map((c) => {
+			const cat = c.categoryId ? categoryById.get(c.categoryId) : undefined;
+			return {
+				key: cat ? cat.id : NO_CATEGORY,
+				name: cat?.name ?? 'Other',
+				icon: cat?.icon ?? null,
+				color: cat?.color ?? OTHER_COLOR,
+				count: c.count,
+				monthlyMinor: c.monthlyMinor,
+				yearlyMinor: c.yearlyMinor,
+				chargedYearMinor: charged.get(cat ? cat.id : NO_CATEGORY) ?? 0n
+			};
+		}),
+		chargedYearMinor: [...charged.values()].reduce((s, v) => s + v, 0n),
+		chargedFrom: formatCalDate(chargedWindow.from),
+		chargedTo: formatCalDate(chargedWindow.to),
 		needsConfirmingCount: confirmRow[0].count,
 		rules: view,
 		past,
-		categories: categories.map((c) => ({ id: c.id, name: c.name, icon: c.icon })),
+		categories: categories.map((c) => ({
+			id: c.id,
+			name: c.name,
+			icon: c.icon,
+			color: c.color ?? OTHER_COLOR
+		})),
 		// Only active buckets you may spend from — the same list the new-purchase
 		// form offers. Cosmetic: `createRule` refuses the rest whatever is posted.
 		buckets: buckets
@@ -208,6 +269,30 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 			)
 			.map((b) => ({ id: b.bucket.id, name: b.bucket.name }))
 	};
+}
+
+/** The neutral grey every chart here gives the uncategorized remainder. */
+const OTHER_COLOR = '#8E8E93';
+
+/**
+ * Merge costs filed under a category the page can no longer name (archived)
+ * into the uncategorized remainder, keeping it last. Without this the ribbon
+ * would carry a nameless segment, and the rows would read "Other" twice.
+ */
+function foldArchived(costs: CategoryCost[], live: Map<string, unknown>): CategoryCost[] {
+	const named = costs.filter((c) => c.categoryId !== null && live.has(c.categoryId));
+	const rest = costs.filter((c) => !(c.categoryId !== null && live.has(c.categoryId)));
+	if (rest.length === 0) return named;
+	const other = rest.reduce<CategoryCost>(
+		(o, c) => ({
+			categoryId: null,
+			count: o.count + c.count,
+			monthlyMinor: o.monthlyMinor + c.monthlyMinor,
+			yearlyMinor: o.yearlyMinor + c.yearlyMinor
+		}),
+		{ categoryId: null, count: 0, monthlyMinor: 0n, yearlyMinor: 0n }
+	);
+	return [...named, other];
 }
 
 function describe(rrule: string): string {

@@ -1002,7 +1002,10 @@ export const TOOLS: McpTool[] = [
 		scope: 'read',
 		inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 		async handler(ctx) {
-			const buckets = await listBuckets(ctx.db, ctx.authed.workspace.id);
+			const buckets = await listBuckets(ctx.db, ctx.authed.workspace.id, {
+				viewerId: ctx.authed.member.id,
+				now: ctx.now
+			});
 			// A token acts as its member, so it sees whose buckets it may actually
 			// charge. Without this the model would keep proposing charges the
 			// submit path then refuses, with no way to tell which ones.
@@ -1412,7 +1415,10 @@ export const TOOLS: McpTool[] = [
 			const bucketId = str(args, 'bucket_id');
 			let overdrawn = '';
 			if (bucketId && state === 'completed') {
-				const after = await bucketBalance(ctx.db, bucketId);
+				const after = await bucketBalance(ctx.db, bucketId, {
+					viewerId: ctx.authed.member.id,
+					now: ctx.now
+				});
 				if (after < 0n) {
 					overdrawn = ` That bucket is now ${Money.of(-after, ctx.authed.workspace.currency).format()} overdrawn. Nothing had been set aside to cover it, so the shortfall counts as ordinary spending.`;
 				}
@@ -1526,7 +1532,10 @@ export const TOOLS: McpTool[] = [
 		name: 'complete_purchase',
 		description:
 			'Mark an approved purchase as bought, recording what was actually spent and (optionally) the date. A large overage may trigger re-approval.',
-		scope: 'approve',
+		// Write, not approve: only the requester can mark their own purchase as
+		// bought — it records what they paid, it decides nothing — so a token
+		// that logs spending must be able to do it without the power to approve.
+		scope: 'write',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1860,7 +1869,10 @@ export const TOOLS: McpTool[] = [
 				});
 				// No modal to put in front of an API caller, so the overdraft goes in
 				// the answer: the balance after the move, said plainly when it's under.
-				const after = await bucketBalance(ctx.db, id);
+				const after = await bucketBalance(ctx.db, id, {
+					viewerId: ctx.authed.member.id,
+					now: ctx.now
+				});
 				return {
 					text:
 						`${withdraw ? 'Withdrew' : 'Deposited'} ${m.format()} ${withdraw ? 'from' : 'into'} "${b.name}".` +

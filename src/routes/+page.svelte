@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { Wallet } from '@lucide/svelte';
+	import { onMount } from 'svelte';
 	import DemoSignIn from '$lib/components/DemoSignIn.svelte';
+	import { announcePageOwner } from '$lib/page-owner';
+
+	// This screen means nobody is signed in: whatever pages the service worker
+	// kept for offline belonged to someone else, so it lets them go.
+	onMount(() => {
+		if (!__DEMO__) announcePageOwner(null);
+	});
 </script>
 
 <svelte:head><title>Ledger</title></svelte:head>

@@ -17,7 +17,8 @@ export async function GET(ctx: WorkspaceContext, { url }: { url: URL }) {
 	const feed = await listLedger(db, scope, now, {
 		...ledgerOptsFromUrl(url.searchParams, ctx.workspace.timezone),
 		limit: 20,
-		offset: parseInt(url.searchParams.get('offset') ?? '0') || 0
+		// Clamped: a negative OFFSET is a Postgres error, not an empty page.
+		offset: Math.max(0, parseInt(url.searchParams.get('offset') ?? '0') || 0)
 	});
 
 	const viewCtx = {
