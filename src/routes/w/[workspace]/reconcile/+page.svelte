@@ -3,7 +3,14 @@
 	import { takeHandoff } from '$lib/reconcile/handoff.svelte';
 	import { page } from '$app/state';
 	import { submit } from '$lib/actions/submit';
-	import { ChevronLeft, ChevronRight, FileText, Sparkles, Upload } from '@lucide/svelte';
+	import {
+		ChevronDown,
+		ChevronLeft,
+		ChevronRight,
+		FileText,
+		Sparkles,
+		Upload
+	} from '@lucide/svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -471,9 +478,15 @@
 			Cards are named here rather than buried in settings: the moment you need
 			one is the moment you are importing a second card's statement.
 		-->
-		<details class="mt-3 px-1">
-			<summary class="cursor-pointer text-[13px]" style="color: var(--ink-3)">
+		<!-- The app's own disclosure: a chevron that turns, not the browser's
+		     triangle, which appeared nowhere else. -->
+		<details class="group mt-3 px-1">
+			<summary
+				class="press inline-flex cursor-pointer list-none items-center gap-1 text-[13px] font-medium [&::-webkit-details-marker]:hidden"
+				style="color: var(--accent-ink)"
+			>
 				{data.accounts.length > 0 ? 'Add another card' : 'Name your cards'}
+				<ChevronDown class="h-3.5 w-3.5 transition-transform duration-200 group-open:rotate-180" />
 			</summary>
 			<form method="POST" action="?/addAccount" use:submit class="mt-2 flex items-end gap-2">
 				<label class="min-w-0 flex-1">

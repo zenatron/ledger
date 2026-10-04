@@ -42,6 +42,8 @@
 		{ label: 'From buckets', minor: f.releasedMinor, sign: true, hide: f.releasedMinor === 0n }
 	]);
 
+	const visibleFlows = $derived(flows.filter((r) => !r.hide));
+
 	const catMax = $derived(
 		data.categories.reduce((m: bigint, c) => (c.totalMinor > m ? c.totalMinor : m), 1n)
 	);
@@ -161,42 +163,36 @@
 
 	<div class="my-6 h-px" style="background: var(--hairline-strong)"></div>
 
-	<!-- Summary cards -->
-	<section class="grid grid-cols-2 gap-3 md:grid-cols-4">
-		{#each flows as row (row.label)}
-			{#if !row.hide}
-				<div
-					class="rounded-2xl p-3.5"
-					style="background: var(--surface); box-shadow: inset 0 0 0 1px var(--hairline)"
-				>
-					<p
-						class="text-[11px] font-semibold tracking-[0.08em] uppercase"
-						style="color: var(--ink-3)"
-					>
-						{row.label}
-					</p>
-					<p
-						class="mt-1.5 font-[family-name:var(--font-display)] text-[22px] font-bold"
-						style="color: var(--ink)"
-					>
-						<Money minor={row.minor} {currency} sign={row.sign} />
-					</p>
-				</div>
-			{/if}
+	<!--
+		The month as a sum, set like a printed statement: each movement on its own
+		ruled line with the sign it carries, and the net position under a double
+		rule, the bookkeeper's mark for a total. It was four boxed tiles, which
+		read as four unrelated figures; the point is that they add up.
+	-->
+	<section aria-label="Summary">
+		{#each visibleFlows as row, i (row.label)}
+			<!-- Ruled between lines; the last gives way to the total's double rule. -->
+			<div
+				class="flex items-baseline justify-between gap-4 py-2.5"
+				style={i < visibleFlows.length - 1 ? 'border-bottom: 1px solid var(--hairline)' : ''}
+			>
+				<span class="section-label">{row.label}</span>
+				<Money minor={row.minor} {currency} sign={row.sign} class="text-[17px] font-semibold" />
+			</div>
 		{/each}
 		<div
-			class="rounded-2xl p-3.5"
-			style="background: color-mix(in oklab, {heroColor} 8%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in oklab, {heroColor} 20%, var(--hairline))"
+			class="mt-1 flex items-baseline justify-between gap-4 pt-3"
+			style="border-top: 3px double var(--hairline-strong)"
 		>
-			<p class="text-[11px] font-semibold tracking-[0.08em] uppercase" style="color: {heroColor}">
-				Net position
-			</p>
-			<p
-				class="mt-1.5 font-[family-name:var(--font-display)] text-[22px] font-bold"
-				style="color: {heroColor}"
-			>
-				<Money minor={s.netMinor} {currency} sign />
-			</p>
+			<span class="section-label" style="color: {heroColor}">Net position</span>
+			<span style="color: {heroColor}">
+				<Money
+					minor={s.netMinor}
+					{currency}
+					sign
+					class="font-[family-name:var(--font-display)] text-[34px] leading-none font-bold"
+				/>
+			</span>
 		</div>
 	</section>
 

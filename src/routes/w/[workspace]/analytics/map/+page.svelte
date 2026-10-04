@@ -556,28 +556,28 @@
 	class="-mx-4 flex flex-col"
 	style="height: calc(100dvh - var(--header-h, 0px) - var(--nav-h) - env(safe-area-inset-bottom, 0px) - 0.75rem)"
 >
-	<!-- Back to the list, and what window we're looking at. -->
-	<div class="flex items-center justify-between px-4 pt-1 pb-2">
+	<!-- Back to the list, the way every sub-page leads back to its parent. -->
+	<div class="px-4">
 		<a
 			href="/w/{slug}/analytics{backSearch}"
-			class="press -ml-1 flex items-center gap-0.5 text-[15px]"
+			class="press -ml-1 inline-flex items-center gap-0.5 text-[14px] font-medium"
 			style="color: var(--ink-3)"
 		>
 			<ChevronLeft class="h-4 w-4" /> Activity
 		</a>
-		<span class="section-label">Map</span>
 	</div>
 
 	<!--
-		Activity's control, now literally the same component. It had drifted into a
-		pill with an ink fill — a different control for the same job on the screen
-		next door.
+		A real title, as every page has, sharing its row with the period control so
+		the map keeps its height. It used to be a lone "MAP" overline in the
+		corner, which read as a stray label rather than a heading.
 
-		`?period=X` alone, as Activity does: it drops month/day/wo so switching
-		lands on the current window, and drops z/c so the new set of pins is framed
-		fresh.
+		Activity's control, literally the same component. `?period=X` alone, as
+		Activity does: it drops month/day/wo so switching lands on the current
+		window, and drops z/c so the new set of pins is framed fresh.
 	-->
-	<div class="flex justify-center px-4 pb-2">
+	<div class="flex items-center justify-between gap-3 px-4 pt-2 pb-2">
+		<h1 class="px-1 text-[28px]">Map</h1>
 		<Segmented
 			options={PERIOD_TABS}
 			value={data.period}
