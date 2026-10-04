@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
 	import { ChevronLeft, Maximize2 } from '@lucide/svelte';
+	import PeriodStepper from '$lib/components/PeriodStepper.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import Segmented from '$lib/components/Segmented.svelte';
 	import { dismiss } from '$lib/actions/dismiss';
@@ -586,53 +587,13 @@
 		/>
 	</div>
 
-	<!-- Also Activity's: 36px round buttons with inline chevrons, a 17px semibold
-	     label between them, and an equally sized spacer when a direction has
-	     nowhere to go so the label never shifts. -->
-	<div class="mb-1 flex items-center justify-between gap-1 px-3">
-		{#if data.hasPrev}
-			<a
-				href={periodHref(stepParams('prev'))}
-				class="press flex h-9 w-9 items-center justify-center rounded-full"
-				style="color: var(--ink-3)"
-				aria-label="Previous"
-			>
-				<svg
-					width="18"
-					height="18"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.4"
-					stroke-linecap="round"
-					stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg
-				>
-			</a>
-		{:else}
-			<div class="h-9 w-9"></div>
-		{/if}
-		<span class="text-[17px] font-semibold" style="color: var(--ink)">{data.label}</span>
-		{#if data.hasNext}
-			<a
-				href={periodHref(stepParams('next'))}
-				class="press flex h-9 w-9 items-center justify-center rounded-full"
-				style="color: var(--ink-3)"
-				aria-label="Next"
-			>
-				<svg
-					width="18"
-					height="18"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.4"
-					stroke-linecap="round"
-					stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg
-				>
-			</a>
-		{:else}
-			<div class="h-9 w-9"></div>
-		{/if}
+	<!-- The same stepper Activity and the statement use. -->
+	<div class="mb-1 px-3">
+		<PeriodStepper
+			label={data.label}
+			prev={data.hasPrev ? { href: periodHref(stepParams('prev')) } : null}
+			next={data.hasNext ? { href: periodHref(stepParams('next')) } : null}
+		/>
 	</div>
 
 	{#if data.points.length === 0}

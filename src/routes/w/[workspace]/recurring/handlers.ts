@@ -57,8 +57,10 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 		listBuckets(db, ctx.workspace.id, { viewerId: ctx.member.id, now: ctx.deps.clock.now() }),
 		// My recurring charges that landed but still need the real amount recorded —
 		// the ledger's "Confirm what you paid" section is where you clear them.
+		// Counted per rule, so a row can say it has a charge waiting rather than
+		// every confirm-yourself rule saying so whether or not one has landed.
 		db
-			.select({ count: count() })
+			.select({ ruleId: purchase.recurringRuleId, count: count() })
 			.from(purchase)
 			.where(
 				and(
@@ -67,7 +69,8 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 					eq(purchase.state, 'approved'),
 					isNotNull(purchase.recurringRuleId)
 				)
-			),
+			)
+			.groupBy(purchase.recurringRuleId),
 		// What each rule has actually cost, for the lifetime figure on an ended
 		// row. Same convention as repo/analytics.ts: the final amount summed over
 		// completed and refunded rows, so a partial refund subtracts and a fully
@@ -140,6 +143,9 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 	// One shape for every rule the page renders. Ended rows reuse it wholesale:
 	// they need the same name, price and cadence, and the same schedule fields,
 	// because starting one again opens the very form an edit does.
+	const awaiting = new Map(
+		confirmRow.flatMap((c) => (c.ruleId ? [[c.ruleId, c.count] as const] : []))
+	);
 	const toView = (r: (typeof rules)[number]) => {
 		let parsed: Recurrence | null = null;
 		try {
@@ -168,6 +174,8 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 			nextAt: r.nextOccurrenceAt?.toISOString() ?? null,
 			status: r.status,
 			autoComplete: r.autoComplete,
+			// Your charges from this rule still waiting on the real amount.
+			awaitingCount: awaiting.get(r.id) ?? 0,
 			categoryId: r.categoryId,
 			bucketId: r.bucketId,
 			bucketName: r.bucketId ? (bucketNames.get(r.bucketId) ?? null) : null,
@@ -247,7 +255,7 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 		chargedYearMinor: [...charged.values()].reduce((s, v) => s + v, 0n),
 		chargedFrom: formatCalDate(chargedWindow.from),
 		chargedTo: formatCalDate(chargedWindow.to),
-		needsConfirmingCount: confirmRow[0].count,
+		needsConfirmingCount: confirmRow.reduce((n, r) => n + r.count, 0),
 		rules: view,
 		past,
 		categories: categories.map((c) => ({

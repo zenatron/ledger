@@ -328,7 +328,10 @@
 					<div class="h-4 w-4 rounded-full" style="background: {colorFor(b)}"></div>
 				</div>
 				<div class="min-w-0 flex-1">
-					<p class="flex items-center gap-1.5 text-[16px]" style="color: var(--ink)">
+					<p
+						class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[16px]"
+						style="color: var(--ink)"
+					>
 						{b.name}
 						{#if b.status === 'paused'}
 							<span class="chip" style="color: var(--ink-3); background: var(--surface-2)"

@@ -695,18 +695,37 @@
 										{/if}
 									</span>
 									<div class="min-w-0 flex-1">
-										<p class="flex items-center gap-1.5 text-[16px]" style="color: var(--ink)">
+										<p
+											class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[16px]"
+											style="color: var(--ink)"
+										>
 											{r.itemName}
 											{#if r.status === 'paused'}
 												<span class="chip" style="color: var(--ink-3); background: var(--surface-2)"
 													>Paused</span
 												>
 											{/if}
+											<!--
+												Said when a charge is actually waiting, in the pending colour.
+												It used to be "needs confirming" on the meta line of every rule
+												set to be confirmed by hand, landed charge or not, which made
+												it noise on most rows and invisible on the one that mattered.
+											-->
+											{#if r.awaitingCount > 0}
+												<a
+													href="/w/{slug}/purchases"
+													class="chip press"
+													style="color: var(--pending); background: color-mix(in oklab, var(--pending) 14%, transparent)"
+													aria-label="{r.awaitingCount} {r.awaitingCount === 1
+														? 'charge'
+														: 'charges'} to confirm in the Ledger">To confirm</a
+												>
+											{/if}
 										</p>
 										<p class="mt-0.5 text-[13px]" style="color: var(--ink-3)">
-											{r.cadence} · next {fmtNext(r.nextAt)}{r.autoComplete
-												? ''
-												: ' · needs confirming'}{r.bucketName ? ` · ${r.bucketName}` : ''}
+											{r.cadence} · next {fmtNext(r.nextAt)}{r.bucketName
+												? ` · ${r.bucketName}`
+												: ''}
 										</p>
 									</div>
 									<div class="shrink-0 text-right">

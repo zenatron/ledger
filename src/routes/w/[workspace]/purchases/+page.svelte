@@ -1011,8 +1011,10 @@
 		</div>
 	{/if}
 
+	<!-- 28px, every tab's masthead size. It was the one tab set at the larger
+	     h1 default, so the title jumped size as you moved along the tab bar. -->
 	<div class="flex items-end justify-between px-1 pt-1 pb-2">
-		<h1>Ledger</h1>
+		<h1 class="text-[28px]">Ledger</h1>
 		<span class="num pb-1 text-[13px]" style="color: var(--ink-3)">
 			{#if feedPending && items.length === 0}
 				<!-- The count streams with the feed; a block of paper stands in for
