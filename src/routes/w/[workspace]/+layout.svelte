@@ -139,6 +139,10 @@
 	// Measured, not guessed: the header's height varies with the safe-area inset,
 	// and anything docking beneath it needs the real number.
 	let headerH = $state(0);
+	// The tab bar's real height, for the one screen that must end exactly at its
+	// edge (the map). --nav-h is a reserve for scrolling pages and deliberately
+	// generous; it is 28px taller than the bar without a home indicator.
+	let navH = $state(0);
 
 	/*
 	 * Offline notice.
@@ -274,8 +278,10 @@
 	};
 	const tabs = [
 		{ section: 'purchases', label: 'Ledger', icon: 'card', also: [] as string[] },
-		{ section: 'analytics', label: 'Activity', icon: 'chart', also: [] as string[] },
-		{ section: 'recurring', label: 'Plan', icon: 'repeat', also: ['buckets'] },
+		// A tab stays lit on the pages it leads to: the statement and the map are
+		// Activity's, the calendar is Plan's.
+		{ section: 'analytics', label: 'Activity', icon: 'chart', also: ['statement'] },
+		{ section: 'recurring', label: 'Plan', icon: 'repeat', also: ['buckets', 'calendar'] },
 		{ section: 'income', label: 'Income', icon: 'dollar', also: [] as string[] }
 	];
 	const leftTabs = $derived(tabs.slice(0, 2));
@@ -285,15 +291,13 @@
 		return isActive(tab.section) || tab.also.some((s) => isActive(s));
 	}
 
+	/*
+	 * Settings is the workspace root and everything reached from it: its own
+	 * sub-pages and Reconcile. It used to match the root alone, so the gear went
+	 * dark again the moment you opened any setting.
+	 */
 	function isSettings(): boolean {
-		return (
-			isActive('') &&
-			!isActive('purchases') &&
-			!isActive('analytics') &&
-			!isActive('buckets') &&
-			!isActive('recurring') &&
-			!isActive('income')
-		);
+		return isActive('') || isActive('settings') || isActive('reconcile');
 	}
 </script>
 
@@ -340,7 +344,9 @@
 {#key slug}
 	<div
 		class="min-h-viewport flex flex-col"
-		style="--ws-accent-base: {accent}; --ws-accent: light-dark(var(--ws-accent-base), color-mix(in oklch, var(--ws-accent-base), white 18%)); --accent: var(--ws-accent); --header-h: {headerH}px; --nav-h: 5.75rem"
+		style="--ws-accent-base: {accent}; --ws-accent: light-dark(var(--ws-accent-base), color-mix(in oklch, var(--ws-accent-base), white 18%)); --accent: var(--ws-accent); --header-h: {headerH}px; --nav-h: 5.75rem; --nav-real: {navH
+			? `${navH}px`
+			: 'var(--nav-h)'}"
 	>
 		{#if __DEMO__}
 			<DemoBanner />
@@ -387,8 +393,10 @@
 					<a
 						href="/w/{slug}"
 						class="press flex h-8 w-8 items-center justify-center rounded-full"
-						style="color: {isSettings() ? 'var(--ink)' : 'var(--ink-3)'}; background: {isSettings()
-							? 'var(--surface-2)'
+						style="color: {isSettings()
+							? 'var(--ws-accent)'
+							: 'var(--ink-3)'}; background: {isSettings()
+							? 'color-mix(in oklab, var(--ws-accent) 14%, transparent)'
 							: 'transparent'}"
 						aria-label="Settings"
 						aria-current={isSettings() ? 'page' : undefined}
@@ -503,6 +511,7 @@
 
 		<!-- Bottom tab bar. Compositing + keyboard-hide behavior is in <style> below. -->
 		<nav
+			bind:clientHeight={navH}
 			class="material fixed right-0 bottom-0 left-0 z-20"
 			class:kb-hidden={keyboardOpen}
 			aria-hidden={keyboardOpen}

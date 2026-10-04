@@ -542,42 +542,65 @@
 		const base = color ?? 'var(--ink-3)';
 		return `color-mix(in oklab, ${base} 34%, transparent)`;
 	}
+
+	/*
+	 * The map is a full-screen surface: nothing on this page scrolls but the map.
+	 * Belt and braces with the height sum below — if a future header row or an
+	 * unexpected inset ever makes the column a pixel too tall, iOS would start
+	 * scrolling the page instead of panning the map, so the document is pinned
+	 * outright while the map is up and released on the way out.
+	 */
+	$effect(() => {
+		const root = document.documentElement;
+		const prev = root.style.overflow;
+		root.style.overflow = 'hidden';
+		return () => {
+			root.style.overflow = prev;
+		};
+	});
 </script>
 
 <svelte:head><title>Map · Ledger</title></svelte:head>
 
 <!--
-	The safe-area inset belongs in this sum. `main` pads its bottom by the tab bar
-	*plus* the home-bar inset, and subtracting only the tab bar left the map taller
-	than the space it sits in by exactly that inset — so an installed PWA on a
-	device with a home bar scrolled a map that is supposed to be fixed.
+	The map ends exactly at the tab bar's top edge, and the page around it is
+	exactly one screen tall, so nothing scrolls but the map itself.
+
+	Height: the screen, less the body's top inset, the header, main's top
+	padding and the tab bar's *measured* height (--nav-real).
+
+	The negative bottom margin hands back what the column doesn't need of the
+	space below it: main reserves --nav-h plus the home-bar inset for scrolling
+	pages, and <body> pads that inset again. Without it the map either stopped
+	short of the bar (28px of dead paper, 68px with a home bar) or, sized to the
+	bar, made the page taller than the screen and scrolled under the thumb.
 -->
 <div
 	class="-mx-4 flex flex-col"
-	style="height: calc(100dvh - var(--header-h, 0px) - var(--nav-h) - env(safe-area-inset-bottom, 0px) - 0.75rem)"
+	style="height: calc(100dvh - env(safe-area-inset-top, 0px) - var(--header-h, 0px) - 0.75rem - var(--nav-real, var(--nav-h))); margin-bottom: calc(var(--nav-real, var(--nav-h)) - var(--nav-h) - 2 * env(safe-area-inset-bottom, 0px))"
 >
-	<!-- Back to the list, the way every sub-page leads back to its parent. -->
-	<div class="px-4">
+	<!-- Back to the list, and what window we're looking at. -->
+	<div class="flex items-center justify-between px-4 pt-1 pb-2">
 		<a
 			href="/w/{slug}/analytics{backSearch}"
-			class="press -ml-1 inline-flex items-center gap-0.5 text-[14px] font-medium"
+			class="press -ml-1 flex items-center gap-0.5 text-[15px]"
 			style="color: var(--ink-3)"
 		>
 			<ChevronLeft class="h-4 w-4" /> Activity
 		</a>
+		<span class="section-label">Map</span>
 	</div>
 
 	<!--
-		A real title, as every page has, sharing its row with the period control so
-		the map keeps its height. It used to be a lone "MAP" overline in the
-		corner, which read as a stray label rather than a heading.
+		Activity's control, now literally the same component. It had drifted into a
+		pill with an ink fill — a different control for the same job on the screen
+		next door.
 
-		Activity's control, literally the same component. `?period=X` alone, as
-		Activity does: it drops month/day/wo so switching lands on the current
-		window, and drops z/c so the new set of pins is framed fresh.
+		`?period=X` alone, as Activity does: it drops month/day/wo so switching
+		lands on the current window, and drops z/c so the new set of pins is framed
+		fresh.
 	-->
-	<div class="flex items-center justify-between gap-3 px-4 pt-2 pb-2">
-		<h1 class="px-1 text-[28px]">Map</h1>
+	<div class="flex justify-center px-4 pb-2">
 		<Segmented
 			options={PERIOD_TABS}
 			value={data.period}

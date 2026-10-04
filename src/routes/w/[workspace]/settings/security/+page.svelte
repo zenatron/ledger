@@ -21,12 +21,12 @@
 <div class="mx-auto max-w-lg space-y-4">
 	<a
 		href="/w/{slug}"
-		class="press -ml-1 inline-flex items-center gap-0.5 text-[15px]"
+		class="press -ml-1 inline-flex items-center gap-0.5 text-[14px] font-medium"
 		style="color: var(--ink-3)"
 	>
 		<ChevronLeft class="h-4 w-4" /> Settings
 	</a>
-	<h1 class="px-1 text-[28px]">Security log</h1>
+	<h1 class="px-1 text-[28px]">Security Log</h1>
 	<p class="px-1 text-[13px] leading-relaxed" style="color: var(--ink-3)">
 		Sign-ins, role and member changes, invites, tokens and workspace settings, with the device each
 		one came from. A session marked <strong>different device</strong> was used somewhere other than where
@@ -51,7 +51,8 @@
 			<p class="p-3 text-[14px]" style="color: var(--ink-3)">Nothing recorded yet.</p>
 		{:else}
 			{#each data.events as e, i (e.id)}
-				<div class="px-3 py-3 {i > 0 ? 'hairline' : ''}">
+				<!-- .hairline rules the row's *bottom*: every row but the last. -->
+				<div class="px-3 py-3 {i < data.events.length - 1 ? 'hairline' : ''}">
 					<p class="text-[15px]" style="color: var(--ink)">{e.text}</p>
 					<p class="num mt-0.5 text-[12px]" style="color: var(--ink-3)">
 						{fmt(e.at)} · {e.device}{#if e.sessionTag}&nbsp;· session {e.sessionTag}{/if}

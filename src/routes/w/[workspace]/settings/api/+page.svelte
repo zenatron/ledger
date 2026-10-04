@@ -185,7 +185,9 @@
 				<div class="overflow-hidden rounded-[10px]" style="background: var(--surface-2)">
 					{#each SCOPES as s, i (s.id)}
 						<label
-							class="flex cursor-pointer items-start gap-3 px-3.5 py-3 {i > 0 ? 'hairline' : ''}"
+							class="flex cursor-pointer items-start gap-3 px-3.5 py-3 {i < SCOPES.length - 1
+								? 'hairline'
+								: ''}"
 						>
 							<input
 								type="checkbox"

@@ -613,7 +613,7 @@
 
 <div class="space-y-4">
 	<PlanHeader>
-		{#snippet actions()}
+		{#snippet primary()}
 			<button
 				onclick={() => (showNew = !showNew)}
 				class="btn {showNew ? 'btn-ghost' : 'btn-tint'} px-4 py-2 text-[14px]"

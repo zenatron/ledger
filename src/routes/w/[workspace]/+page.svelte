@@ -239,7 +239,7 @@
 					{@render navRow(
 						'security',
 						ShieldAlert,
-						'Security log',
+						'Security Log',
 						'Sign-ins, role changes, and who did what from where'
 					)}
 				{/if}
