@@ -257,7 +257,7 @@
 			<!-- No caption over an empty list: a column header with no column under it
 			     reads as a heading for the "None yet" line. -->
 			{#if data.custom.length > 0}
-				<span class="section-label ml-auto w-10 text-right">Bought</span>
+				<span class="section-label ml-auto shrink-0 text-right whitespace-nowrap">Bought</span>
 				{#if owner}
 					<span class="w-7" aria-hidden="true"></span>
 					<span class="w-7" aria-hidden="true"></span>
@@ -322,7 +322,7 @@
 					class="flex items-center gap-3 px-4 py-2.5"
 					style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}
 				>
-					<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
+					<span class="w-6 shrink-0 text-center text-[20px] leading-none">{c.icon ?? '📦'}</span>
 					<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
 					<span class="num w-10 text-right text-[15px]" style="color: var(--ink-3)"
 						>{c.purchases}</span
@@ -364,14 +364,14 @@
 			<span class="chip num" style="color: var(--ink-3); background: var(--surface-2)"
 				>{data.builtIn.length}</span
 			>
-			<span class="section-label ml-auto w-10 text-right">Bought</span>
+			<span class="section-label ml-auto shrink-0 text-right whitespace-nowrap">Bought</span>
 		</div>
 		{#each data.builtIn as c, i (c.id)}
 			<div
 				class="flex items-center gap-3 px-4 py-2.5"
 				style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}
 			>
-				<span class="text-[20px] leading-none">{c.icon ?? '📦'}</span>
+				<span class="w-6 shrink-0 text-center text-[20px] leading-none">{c.icon ?? '📦'}</span>
 				<span class="flex-1 text-[15px]" style="color: var(--ink)">{c.name}</span>
 				<!-- Both lists count the same way: the number alone, tabular and in a
 			     fixed column so it lines up under the caption. "12 purchases" here

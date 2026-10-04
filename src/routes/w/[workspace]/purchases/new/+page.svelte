@@ -362,6 +362,14 @@
 		}
 		if (v.image) attachImage(v.image);
 	}
+	/*
+	 * The amount field hugs what's typed. At a fixed 6ch the empty "0" sat in
+	 * the middle of a wide box and the currency symbol two digits' width away
+	 * from it, so "$ 0" read as two things. Sized to the text (plus a sliver for
+	 * the caret), the symbol stays beside the digits as they grow. Capped where
+	 * the card runs out of room.
+	 */
+	const amountWidth = $derived(`${Math.min(9, Math.max(1, (amount || '0').length)) + 0.3}ch`);
 	const symbol = $derived(
 		(0)
 			.toLocaleString(undefined, { style: 'currency', currency: data.workspace.currency })
@@ -583,8 +591,8 @@
 						pattern="[0-9]*\.?[0-9]*"
 						placeholder="0"
 						autocomplete="off"
-						class="w-[6ch] border-none bg-transparent p-0 text-center font-[family-name:var(--font-display)] text-[56px] leading-none font-bold tracking-tight tabular-nums outline-none placeholder:text-(--ink-4)"
-						style="color: var(--ink)"
+						class="border-none bg-transparent p-0 text-center font-[family-name:var(--font-display)] text-[56px] leading-none font-bold tracking-tight tabular-nums outline-none placeholder:text-(--ink-4)"
+						style="color: var(--ink); width: {amountWidth}"
 					/>
 					<!--
 						A hidden twin of the currency symbol, balancing its width on the

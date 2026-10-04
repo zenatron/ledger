@@ -6,7 +6,9 @@
 	import { ArrowUpRight, ChevronDown, CircleHelp, Pencil, Trash2, Wallet } from '@lucide/svelte';
 	import { slide } from 'svelte/transition';
 	import Money from '$lib/components/Money.svelte';
-	import { minorToDecimalInput } from '$lib/money-format';
+	import HeroCard from '$lib/components/HeroCard.svelte';
+	import Ribbon from '$lib/components/Ribbon.svelte';
+	import { formatMinor, minorToDecimalInput } from '$lib/money-format';
 	import IncomeSchedule from '$lib/components/IncomeSchedule.svelte';
 	import { calDateInZone } from '$lib/domain/time/zoned';
 	let { data, form } = $props();
@@ -66,6 +68,32 @@
 	);
 	let showPast = $state(false);
 
+	/*
+	 * The headline: what comes in every month, from the templates, cut by who
+	 * brings it in. Income is the approve green throughout this page, so each
+	 * person is a strength of it rather than a new colour; the largest share
+	 * is the fullest.
+	 */
+	const monthly = $derived(current.filter((e) => e.recurring));
+	const monthlyMinor = $derived(monthly.reduce((sum, e) => sum + e.amountMinor, 0n));
+	const byPerson = $derived.by(() => {
+		// A plain record: built and read inside this derivation, never mutated after.
+		const totals: Record<string, { name: string; minor: bigint }> = {};
+		for (const e of monthly) {
+			const t = (totals[e.memberId] ??= { name: e.memberName, minor: 0n });
+			t.minor += e.amountMinor;
+		}
+		const sorted = Object.entries(totals).sort((a, b) =>
+			a[1].minor > b[1].minor ? -1 : a[1].minor < b[1].minor ? 1 : 0
+		);
+		return sorted.map(([key, t], i) => ({
+			key,
+			label: t.name,
+			minor: t.minor,
+			color: `color-mix(in oklab, var(--approve) ${Math.max(35, 100 - i * 22)}%, var(--surface-2))`
+		}));
+	});
+
 	function startEdit(e: (typeof data.entries)[number]) {
 		editing = editing === e.id ? null : e.id;
 		if (editing === null) return;
@@ -117,7 +145,7 @@
 		>
 			<div class="flex items-center gap-3">
 				<span
-					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px]"
+					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]"
 					style="background: color-mix(in oklab, var(--approve) 18%, transparent)"
 				>
 					<ArrowUpRight class="h-4 w-4" style="color: var(--approve)" />
@@ -169,7 +197,7 @@
 				method="POST"
 				action="?/edit"
 				use:submit={{ success: 'Changes saved', onSuccess: () => (editing = null) }}
-				class="mt-3 space-y-3 rounded-[14px] p-4"
+				class="mx-3 mb-3 space-y-3 rounded-[14px] p-4"
 				style="background: var(--surface-2)"
 			>
 				<input type="hidden" name="incomeId" value={e.id} />
@@ -221,6 +249,56 @@
 			{showNew ? 'Cancel' : '+ New'}
 		</button>
 	</div>
+
+	{#if monthlyMinor > 0n || data.oneOffYearMinor > 0n}
+		<!-- The statement Recurring and Buckets open on, for what comes in. With no
+		     monthly templates the last year's one-offs are the figure instead. -->
+		<HeroCard
+			label="Income"
+			overline={monthlyMinor > 0n ? 'Income · per month' : 'Income · last 12 months'}
+			minor={monthlyMinor > 0n ? monthlyMinor : data.oneOffYearMinor}
+			currency={data.currency}
+			tint="var(--approve)"
+		>
+			{#snippet line()}
+				{#if monthlyMinor > 0n}
+					<span class="num">{formatMinor(monthlyMinor * 12n, data.currency)}</span> a year
+					<span style="color: var(--ink-3)"
+						>· {monthly.length}
+						{monthly.length === 1 ? 'source' : 'sources'}{byPerson.length > 1
+							? ` from ${byPerson.length} people`
+							: ''}</span
+					>
+				{:else}
+					From one-off payments. Add a monthly one to see what comes in every month.
+				{/if}
+			{/snippet}
+			{#if byPerson.length > 1}
+				<Ribbon class="mt-5" parts={byPerson} />
+				<ul class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px]" aria-label="By person">
+					{#each byPerson as p (p.key)}
+						<li class="flex items-center gap-1.5" style="color: var(--ink-2)">
+							<span class="h-2 w-2 shrink-0 rounded-full" style="background: {p.color}"></span>
+							{p.label}
+							<span class="num" style="color: var(--ink-3)"
+								>{formatMinor(p.minor, data.currency)}</span
+							>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if monthlyMinor > 0n && data.oneOffYearMinor > 0n}
+				<p
+					class="mt-3 border-t pt-3 text-[13px]"
+					style="border-color: var(--hairline); color: var(--ink-3)"
+				>
+					<span class="num font-semibold" style="color: var(--ink-2)"
+						>+{formatMinor(data.oneOffYearMinor, data.currency)}</span
+					> more in one-offs over the last 12 months
+				</p>
+			{/if}
+		</HeroCard>
+	{/if}
 
 	{#if form?.error}
 		<div

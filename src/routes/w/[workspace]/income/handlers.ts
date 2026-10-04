@@ -22,7 +22,19 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 	const ws = ctx.workspace;
 	const t = calDateInZone(ctx.deps.clock.now(), ws.timezone);
 	const startOfToday = zonedTimeToUtc(t, 0, 0, ws.timezone);
+	// One-offs received in the last twelve months: the bonus, the tax refund,
+	// the side job. The headline's monthly figure is templates only, so these
+	// are said beside it rather than lost.
+	const yearAgo = new Date(startOfToday.getTime() - 365 * 86_400_000);
+	const oneOffYearMinor = rows
+		.filter(
+			(r) =>
+				r.entry.rrule === null && r.entry.receivedAt >= yearAgo && r.entry.receivedAt < startOfToday
+		)
+		.reduce((sum, r) => sum + r.entry.amountMinor, 0n);
 	return {
+		currency: ws.currency,
+		oneOffYearMinor,
 		entries: rows.map((r) => {
 			let freq: string | null = null;
 			let monthDay: number | null = null;
@@ -44,6 +56,7 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 				receivedDate: r.entry.receivedAt.toISOString().slice(0, 10),
 				cadence: r.entry.rrule ? describe(r.entry.rrule) : null,
 				note: r.entry.note,
+				memberId: r.entry.memberId,
 				memberName: r.memberName,
 				mine: r.entry.memberId === ctx.member.id,
 				/* A monthly entry is a template, so it is never "past": it keeps

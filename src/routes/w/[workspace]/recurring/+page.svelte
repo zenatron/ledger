@@ -5,7 +5,7 @@
 	import { submit } from '$lib/actions/submit';
 	import { swipe } from '$lib/actions/swipe';
 	import { page } from '$app/state';
-	import PlanTabs from '$lib/components/PlanTabs.svelte';
+	import PlanHeader from '$lib/components/PlanHeader.svelte';
 	import RecurringBreakdown from '$lib/components/RecurringBreakdown.svelte';
 	import Segmented from '$lib/components/Segmented.svelte';
 	import { goto } from '$app/navigation';
@@ -315,23 +315,22 @@
 </script>
 
 <div class="space-y-4">
-	<PlanTabs />
-	<div class="flex items-center justify-between px-1">
-		<h1 class="text-[28px]">Recurring</h1>
-		<div class="flex items-center gap-2">
+	<PlanHeader>
+		{#snippet actions()}
 			{#if data.rules.length > 1}
 				<button onclick={openSettings} class="press icon-btn" aria-label="Sort and group">
-					<Funnel class="h-4 w-4" style="color: var(--ink-3)" />
+					<Funnel class="h-4 w-4" />
 				</button>
 			{/if}
 			<button
 				onclick={() => (showNew = !showNew)}
 				class="btn {showNew ? 'btn-ghost' : 'btn-tint'} px-4 py-2 text-[14px]"
+				aria-label={showNew ? 'Cancel new recurring charge' : 'New recurring charge'}
 			>
 				{showNew ? 'Cancel' : '+ New'}
 			</button>
-		</div>
-	</div>
+		{/snippet}
+	</PlanHeader>
 
 	{#if showSettings}
 		<!-- Centered modal, mirroring the ledger filter. Choices are drafted here and
@@ -724,6 +723,13 @@
 								</div>
 								{#if r.mine}
 									<div class="mt-2.5 flex items-center gap-4 text-[13px]">
+										<button
+											onclick={() => startEdit(r)}
+											class="press inline-flex items-center gap-1"
+											style="color: var(--ink-2)"
+										>
+											<Pencil class="h-3.5 w-3.5" /> Edit
+										</button>
 										{#if r.status === 'active'}
 											<form method="POST" action="?/pause" use:submit={{ success: 'Paused' }}>
 												<input type="hidden" name="ruleId" value={r.id} />
@@ -745,13 +751,6 @@
 												</button>
 											</form>
 										{/if}
-										<button
-											onclick={() => startEdit(r)}
-											class="press inline-flex items-center gap-1"
-											style="color: var(--ink-2)"
-										>
-											<Pencil class="h-3.5 w-3.5" /> Edit
-										</button>
 										<form
 											method="POST"
 											action="?/end"
@@ -774,7 +773,7 @@
 										method="POST"
 										action="?/edit"
 										use:submit={{ success: 'Changes saved', onSuccess: () => (editing = null) }}
-										class="mt-3 space-y-3 rounded-[14px] p-4"
+										class="mx-3 mb-3 space-y-3 rounded-[14px] p-4"
 										style="background: var(--surface-2)"
 									>
 										<input type="hidden" name="ruleId" value={r.id} />
@@ -1002,7 +1001,7 @@
 								method="POST"
 								action="?/restart"
 								use:submit={{ success: 'Started again', onSuccess: () => (restarting = null) }}
-								class="mt-3 space-y-3 rounded-[14px] p-4"
+								class="mx-3 mb-3 space-y-3 rounded-[14px] p-4"
 								style="background: var(--surface-2)"
 							>
 								<input type="hidden" name="ruleId" value={r.id} />

@@ -2,13 +2,15 @@
 	import { submit } from '$lib/actions/submit';
 	import { swipe } from '$lib/actions/swipe';
 	import { page } from '$app/state';
-	import PlanTabs from '$lib/components/PlanTabs.svelte';
+	import PlanHeader from '$lib/components/PlanHeader.svelte';
 	import { money } from '$lib/actions/money';
 	import { formatMinor, minorToDecimalInput, tryParseMinor } from '$lib/money-format';
 	import { overdraftBy } from '$lib/domain/bucket/flows';
 	import { formatPct } from '$lib/format';
 	import { Archive, CircleHelp, Pause, Pencil, Play, Plus, Wallet } from '@lucide/svelte';
 	import Money from '$lib/components/Money.svelte';
+	import HeroCard from '$lib/components/HeroCard.svelte';
+	import Ribbon from '$lib/components/Ribbon.svelte';
 	import RecurrencePicker from '$lib/components/RecurrencePicker.svelte';
 	import CheckField from '$lib/components/CheckField.svelte';
 	import Segmented from '$lib/components/Segmented.svelte';
@@ -147,6 +149,10 @@
 		allowanceOpen = false;
 		allowanceFor = null;
 	}
+
+	// What is still being topped up, on one per-month scale, for the headline.
+	const accruing = $derived(data.buckets.filter((b) => b.status === 'active'));
+	const accruingMonthly = $derived(accruing.reduce((sum, b) => sum + b.monthlyMinor, 0n));
 
 	const overdrawn = $derived(data.buckets.filter((b) => b.balanceMinor < 0n));
 	const overdrawnTotal = $derived(overdrawn.reduce((sum, b) => sum - b.balanceMinor, 0n));
@@ -316,7 +322,7 @@
 		>
 			<div class="flex items-center gap-3">
 				<div
-					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+					class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
 					style="background: color-mix(in oklab, {colorFor(b)} 20%, transparent)"
 				>
 					<div class="h-4 w-4 rounded-full" style="background: {colorFor(b)}"></div>
@@ -367,7 +373,7 @@
 						style="width: {progressPct(b)}%; background: {colorFor(b)}"
 					></div>
 				</div>
-				<div class="mt-1 flex justify-between text-[11px]" style="color: var(--ink-3)">
+				<div class="num mt-1 flex justify-between text-[12px]" style="color: var(--ink-3)">
 					<span>{formatPct(progressPct(b))} of {formatMinor(b.goalCapMinor, b.currency)}</span>
 					<span>{b.memberName}</span>
 				</div>
@@ -447,7 +453,7 @@
 					method="POST"
 					action="?/edit"
 					use:submit={{ success: 'Changes saved', onSuccess: () => (editing = null) }}
-					class="mt-3 space-y-3 rounded-[14px] p-4"
+					class="mx-3 mb-3 space-y-3 rounded-[14px] p-4"
 					style="background: var(--surface-2)"
 				>
 					<input type="hidden" name="bucketId" value={b.id} />
@@ -518,12 +524,7 @@
 							{/if}
 						</div>
 					{/if}
-					<p
-						class="text-[11px] font-medium tracking-[0.14em] uppercase"
-						style="color: var(--ink-3)"
-					>
-						Color
-					</p>
+					<p class="section-label">Color</p>
 					<div class="flex gap-2.5">
 						{#each ACCENTS as c (c)}
 							<button
@@ -560,7 +561,7 @@
 						success: 'Bucket updated',
 						onSuccess: resetAdjustForm
 					}}
-					class="mt-3 space-y-3 rounded-[14px] p-4"
+					class="mx-3 mb-3 space-y-3 rounded-[14px] p-4"
 					style="background: var(--surface-2)"
 				>
 					<input type="hidden" name="bucketId" value={b.id} />
@@ -608,51 +609,68 @@
 {/snippet}
 
 <div class="space-y-4">
-	<PlanTabs />
-	<div class="flex items-center justify-between px-1">
-		<h1 class="text-[28px]">Buckets</h1>
-		<button
-			onclick={() => (showNew = !showNew)}
-			class="btn {showNew ? 'btn-ghost' : 'btn-tint'} px-4 py-2 text-[14px]"
-		>
-			{showNew ? 'Cancel' : '+ New'}
-		</button>
-	</div>
+	<PlanHeader>
+		{#snippet actions()}
+			<button
+				onclick={() => (showNew = !showNew)}
+				class="btn {showNew ? 'btn-ghost' : 'btn-tint'} px-4 py-2 text-[14px]"
+				aria-label={showNew ? 'Cancel new bucket' : 'New bucket'}
+			>
+				{showNew ? 'Cancel' : '+ New'}
+			</button>
+		{/snippet}
+	</PlanHeader>
 
 	{#if data.buckets.length > 0}
-		<!-- On hand = what's in the buckets now; Lifetime = gross ever set aside
-		     (matches the Activity page's "Saved"). They diverge once money's spent. -->
-		<div class="card flex items-stretch p-4">
-			<div class="flex-1 text-center">
-				<p class="section-label">On hand</p>
-				<Money
-					minor={data.onHandMinor}
-					currency={data.currency}
-					block
-					class="num mt-1 text-[22px] font-semibold"
-				/>
-			</div>
-			<div class="mx-2 w-px shrink-0" style="background: var(--hairline)"></div>
-			<div class="flex-1 text-center">
-				<p class="section-label">Lifetime saved</p>
-				<Money
-					minor={data.lifetimeSavedMinor}
-					currency={data.currency}
-					block
-					class="num mt-1 text-[22px] font-semibold"
-				/>
-			</div>
-		</div>
-		<!-- On hand nets the overdrawn buckets out of the healthy ones, so it alone
-		     would hide a hole. Name what's underwater instead of leaving the total
-		     to quietly absorb it. -->
-		{#if overdrawn.length > 0}
-			<p class="px-1 text-[13px]" style="color: var(--pending)">
-				{overdrawn.length === 1
-					? `${overdrawn[0].name} is ${formatMinor(-overdrawn[0].balanceMinor, overdrawn[0].currency)} overdrawn`
-					: `${overdrawn.length} buckets are overdrawn, ${formatMinor(overdrawnTotal, data.currency)} in total`}
-			</p>
-		{/if}
+		<!--
+			The same statement Recurring opens on. On hand is what's in the buckets
+			now; "saved over time" is gross ever set aside (the Activity page's
+			"Saved"), and the two diverge once money's spent. The ribbon is where
+			the on-hand money sits, bucket by bucket, in each bucket's own colour,
+			so the rows below read as the ribbon taken apart.
+		-->
+		<HeroCard
+			label="Money set aside"
+			overline="Set aside · on hand"
+			minor={data.onHandMinor}
+			currency={data.currency}
+		>
+			{#snippet line()}
+				{#if accruingMonthly > 0n}
+					<span class="num">+{formatMinor(accruingMonthly, data.currency)}</span> a month into
+					{accruing.length}
+					{accruing.length === 1 ? 'bucket' : 'buckets'}
+				{:else}
+					Nothing set aside on a schedule right now
+				{/if}
+				<span style="color: var(--ink-3)"
+					>· <span class="num">{formatMinor(data.lifetimeSavedMinor, data.currency)}</span> saved over
+					time</span
+				>
+			{/snippet}
+			<Ribbon
+				class="mt-5"
+				parts={data.buckets.map((b) => ({
+					key: b.id,
+					label: b.name,
+					color: colorFor(b),
+					minor: b.balanceMinor
+				}))}
+			/>
+			<!-- On hand nets the overdrawn buckets out of the healthy ones, so it
+			     alone would hide a hole. Name what's underwater instead of leaving
+			     the total to quietly absorb it. -->
+			{#if overdrawn.length > 0}
+				<p
+					class="mt-3 border-t pt-3 text-[13px]"
+					style="border-color: var(--hairline); color: var(--pending)"
+				>
+					{overdrawn.length === 1
+						? `${overdrawn[0].name} is ${formatMinor(-overdrawn[0].balanceMinor, overdrawn[0].currency)} overdrawn`
+						: `${overdrawn.length} buckets are overdrawn, ${formatMinor(overdrawnTotal, data.currency)} in total`}
+				</p>
+			{/if}
+		</HeroCard>
 	{/if}
 
 	{#if form?.error}
@@ -757,9 +775,7 @@
 					{/if}
 				</p>
 			</div>
-			<p class="text-[11px] font-medium tracking-[0.14em] uppercase" style="color: var(--ink-3)">
-				Color
-			</p>
+			<p class="section-label">Color</p>
 			<div class="flex gap-2.5">
 				{#each ACCENTS as c (c)}
 					<button
