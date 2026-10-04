@@ -72,6 +72,39 @@
 	);
 </script>
 
+<!--
+	One settings destination. `to` is relative to /settings, which is where all
+	but Reconcile live. Alpha features carry the amber tag.
+-->
+{#snippet navRow(to: string, Icon: typeof Users, title: string, subtitle: string, alpha = false)}
+	{@const href = to.startsWith('../') ? `/w/${slug}/${to.slice(3)}` : `/w/${slug}/settings/${to}`}
+	<a
+		{href}
+		class="row-tap flex items-center gap-3.5 px-4 py-3 [&+&]:shadow-[inset_0_0.5px_0_var(--hairline)]"
+	>
+		<span
+			class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+			style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
+		>
+			<Icon class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
+		</span>
+		<span class="min-w-0 flex-1">
+			<span class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
+				{title}
+				{#if alpha}
+					<span
+						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
+						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
+						>Alpha</span
+					>
+				{/if}
+			</span>
+			<span class="block text-[13px]" style="color: var(--ink-3)">{subtitle}</span>
+		</span>
+		<ChevronRight class="h-4 w-4 shrink-0" style="color: var(--ink-4)" />
+	</a>
+{/snippet}
+
 <div class="space-y-4">
 	<h1 class="px-1 pt-1 text-[28px]">Settings</h1>
 
@@ -175,160 +208,59 @@
 		</a>
 	{/if}
 
-	<!-- Workspace -->
-	{#if !__DEMO__}
-		<a href="/w/{slug}/settings/members" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<Users class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="text-[15px] font-medium" style="color: var(--ink)">Members</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">{memberSummary}</p>
-			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
-	{/if}
-
-	<a href="/w/{slug}/settings/categories" class="press card flex items-center gap-3.5 p-4">
-		<span
-			class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-			style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-		>
-			<Shapes class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-		</span>
-		<div class="flex-1">
-			<p class="text-[15px] font-medium" style="color: var(--ink)">Categories</p>
-			<p class="text-[13px]" style="color: var(--ink-3)">Add custom spending categories</p>
+	<!--
+		Grouped lists, one card each, rows divided by hairlines: the shape the
+		ledger and Help use. It was a card per destination, a dozen identical
+		floating boxes with nothing saying which belonged together.
+	-->
+	<section class="space-y-2" aria-label="Workspace">
+		<p class="section-label px-1">Workspace</p>
+		<div class="card overflow-hidden">
+			{#if !__DEMO__}
+				{@render navRow('members', Users, 'Members', memberSummary)}
+			{/if}
+			{@render navRow('categories', Shapes, 'Categories', 'Add custom spending categories')}
+			{#if !__DEMO__}
+				{@render navRow(
+					'notifications',
+					Bell,
+					'Notifications',
+					'Push, ntfy, and per-event routing'
+				)}
+				{@render navRow(
+					'intelligence',
+					Sparkles,
+					'Harmony',
+					'Safe to Spend, bill reading, and optional AI assistance',
+					true
+				)}
+				{@render navRow('advanced', Settings, 'Advanced', 'Timing, thresholds, nudges, and limits')}
+				{#if data.member.role === 'owner'}
+					{@render navRow(
+						'security',
+						ShieldAlert,
+						'Security log',
+						'Sign-ins, role changes, and who did what from where'
+					)}
+				{/if}
+			{/if}
 		</div>
-		<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-	</a>
+	</section>
 
 	{#if !__DEMO__}
-		<a href="/w/{slug}/settings/notifications" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<Bell class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="text-[15px] font-medium" style="color: var(--ink)">Notifications</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">Push, ntfy, and per-event routing</p>
+		<section class="space-y-2" aria-label="Tools">
+			<p class="section-label px-1">Tools</p>
+			<div class="card overflow-hidden">
+				{@render navRow(
+					'../reconcile',
+					FileCheck,
+					'Reconcile',
+					'Tick a bank statement against this ledger',
+					true
+				)}
+				{@render navRow('api', Webhook, 'API & MCP', 'Connect Claude or another assistant', true)}
 			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
-	{/if}
-
-	{#if !__DEMO__}
-		<a href="/w/{slug}/settings/intelligence" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<Sparkles class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
-					Harmony
-					<span
-						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-						>Alpha</span
-					>
-				</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">
-					Safe to Spend, bill reading, and optional AI assistance
-				</p>
-			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
-	{/if}
-
-	{#if !__DEMO__}
-		<a href="/w/{slug}/reconcile" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<FileCheck class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
-					Reconcile
-					<span
-						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-						>Alpha</span
-					>
-				</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">
-					Tick a bank statement against this ledger
-				</p>
-			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
-	{/if}
-
-	{#if !__DEMO__}
-		<a href="/w/{slug}/settings/advanced" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<Settings class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="text-[15px] font-medium" style="color: var(--ink)">Advanced</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">
-					Timing, thresholds, nudges, and limits
-				</p>
-			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
-	{/if}
-
-	{#if !__DEMO__}
-		<a href="/w/{slug}/settings/api" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<Webhook class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
-					API &amp; MCP
-					<span
-						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-						>Alpha</span
-					>
-				</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">Connect Claude or another assistant</p>
-			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
-	{/if}
-
-	{#if !__DEMO__ && data.member.role === 'owner'}
-		<a href="/w/{slug}/settings/security" class="press card flex items-center gap-3.5 p-4">
-			<span
-				class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-				style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-			>
-				<ShieldAlert class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-			</span>
-			<div class="flex-1">
-				<p class="text-[15px] font-medium" style="color: var(--ink)">Security log</p>
-				<p class="text-[13px]" style="color: var(--ink-3)">
-					Sign-ins, role changes, and who did what from where
-				</p>
-			</div>
-			<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-		</a>
+		</section>
 	{/if}
 
 	{#if form?.error && form?.section !== 'avatar'}
@@ -410,33 +342,13 @@
 		{/if}
 	{/if}
 
-	<a href="/w/{slug}/settings/appearance" class="press card flex items-center gap-3.5 p-4">
-		<span
-			class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-			style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-		>
-			<Palette class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-		</span>
-		<div class="flex-1">
-			<p class="text-[15px] font-medium" style="color: var(--ink)">Appearance</p>
-			<p class="text-[13px]" style="color: var(--ink-3)">Theme and the workspace accent</p>
+	<section class="space-y-2" aria-label="App">
+		<p class="section-label px-1">App</p>
+		<div class="card overflow-hidden">
+			{@render navRow('appearance', Palette, 'Appearance', 'Theme and the workspace accent')}
+			{@render navRow('help', CircleHelp, 'Help', 'Approvals, gift mode, buckets, budgets')}
 		</div>
-		<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-	</a>
-
-	<a href="/w/{slug}/settings/help" class="press card flex items-center gap-3.5 p-4">
-		<span
-			class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-			style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
-		>
-			<CircleHelp class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-		</span>
-		<div class="flex-1">
-			<p class="text-[15px] font-medium" style="color: var(--ink)">Help</p>
-			<p class="text-[13px]" style="color: var(--ink-3)">Approvals, gift mode, buckets, budgets</p>
-		</div>
-		<ChevronRight class="h-4 w-4" style="color: var(--ink-4)" />
-	</a>
+	</section>
 
 	{#if data.member.role === 'owner'}
 		<!--
@@ -486,16 +398,15 @@
 					<div class="flex gap-2">
 						<button
 							disabled={deleteConfirmText.trim() !== data.workspace.name}
-							class="press rounded-[var(--r-sm)] px-4 py-2 text-[14px] font-semibold text-white disabled:opacity-40"
-							style="background: var(--deny)"
+							class="btn flex-1 py-2.5 text-[14px] disabled:opacity-40"
+							style="background: var(--deny); color: var(--paper)"
 						>
 							Delete forever
 						</button>
 						<button
 							type="button"
 							onclick={disarmDelete}
-							class="press rounded-[var(--r-sm)] px-4 py-2 text-[14px]"
-							style="color: var(--ink-3)"
+							class="btn btn-ghost flex-1 py-2.5 text-[14px]"
 						>
 							Cancel
 						</button>

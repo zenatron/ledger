@@ -814,9 +814,19 @@
 					>
 						<span class="text-[16px]" style="color: var(--ink-3)">From</span>
 						<span class="flex items-center gap-2">
-							<span class="text-[16px] font-medium" style="color: var(--ink)"
-								>{p.merchantName ?? 'Add'}</span
-							>
+							<!-- An empty field reads as an invitation, not as a value: "Add" in
+							     the accent when you can, a quiet "None" when you can't. -->
+							{#if p.merchantName}
+								<span class="text-[16px] font-medium" style="color: var(--ink)"
+									>{p.merchantName}</span
+								>
+							{:else}
+								<span
+									class="text-[16px] font-medium"
+									style="color: {data.can.annotate ? 'var(--accent-ink)' : 'var(--ink-3)'}"
+									>{data.can.annotate ? 'Add' : 'None'}</span
+								>
+							{/if}
 							{#if data.can.annotate}
 								<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
 									<Pencil class="edit-pencil h-3.5 w-3.5" style="color: var(--ink-4)" />
@@ -1014,7 +1024,11 @@
 										</span>
 									</span>
 								{:else}
-									<span class="text-[16px] font-medium" style="color: var(--ink)">Add</span>
+									<span
+										class="text-[16px] font-medium"
+										style="color: {data.can.annotate ? 'var(--accent-ink)' : 'var(--ink-3)'}"
+										>{data.can.annotate ? 'Add' : 'None'}</span
+									>
 								{/if}
 								{#if data.can.annotate}
 									<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center">

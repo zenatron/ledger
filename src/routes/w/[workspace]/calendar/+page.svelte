@@ -20,7 +20,9 @@
 	import { fade, scale } from 'svelte/transition';
 	import { swipe } from '$lib/actions/swipe';
 	import { submit } from '$lib/actions/submit';
+	import { goto } from '$app/navigation';
 	import { ChevronLeft, ChevronRight, OctagonX, Pause, X } from '@lucide/svelte';
+	import HeroCard from '$lib/components/HeroCard.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -63,6 +65,63 @@
 		if (kind === 'decision') return 'var(--pending)';
 		return 'var(--ink-2)';
 	}
+
+	const monthName = $derived(data.month.label.split(' ')[0]);
+
+	/**
+	 * Days before today, in this month. The calendar only draws what is still
+	 * to come (a charge that already landed is a purchase in the ledger), so a
+	 * past day is either empty or holds income that arrived. Either way it is
+	 * not something to plan around, and it recedes.
+	 */
+	const isPast = (n: number) => data.todayDay !== null && n < data.todayDay;
+
+	/**
+	 * The month as a list, below the grid. The grid shows the shape of the
+	 * month and the list says what is in it, so the common question ("what's
+	 * due this week?") is a scroll away rather than a tap on every square.
+	 * From today on in this month; the whole month for any other.
+	 */
+	const agenda = $derived(data.days.filter((d) => d.entries.length > 0 && !isPast(d.day)));
+
+	function weekdayOf(n: number): string {
+		return new Date(Date.UTC(data.month.y, data.month.m - 1, n)).toLocaleDateString(undefined, {
+			weekday: 'short',
+			timeZone: 'UTC'
+		});
+	}
+
+	function kindLabel(e: { kind: string; estimate: boolean }): string {
+		const base =
+			e.kind === 'income'
+				? 'Expected in'
+				: e.kind === 'saving'
+					? 'Set aside'
+					: e.kind === 'decision'
+						? 'Comes back to decide'
+						: 'Bill';
+		return e.estimate ? `${base} · estimated` : base;
+	}
+
+	/*
+	 * A sideways swipe on the grid steps the month, as it steps the period on
+	 * Activity. Decided on release and only for a clearly horizontal stroke, so
+	 * a vertical scroll that drifts never changes the month under you.
+	 */
+	let touch: { x: number; y: number } | null = null;
+	function onTouchStart(e: TouchEvent) {
+		const t = e.touches[0];
+		touch = { x: t.clientX, y: t.clientY };
+	}
+	function onTouchEnd(e: TouchEvent) {
+		if (!touch) return;
+		const t = e.changedTouches[0];
+		const dx = t.clientX - touch.x;
+		const dy = t.clientY - touch.y;
+		touch = null;
+		if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+		void goto(`?m=${dx > 0 ? data.month.prev : data.month.next}`, { noScroll: true });
+	}
 </script>
 
 <svelte:head><title>{data.month.label} · Scheduled · Ledger</title></svelte:head>
@@ -79,7 +138,18 @@
 	<!-- Masthead: the month as the headline, what it costs as the standfirst. -->
 	<div class="flex items-end justify-between gap-3 px-1">
 		<div class="min-w-0">
-			<p class="section-label">Scheduled</p>
+			<!-- A way home after browsing months, which the arrows alone don't give.
+			     On the overline, so the month name keeps the full width. -->
+			<p class="section-label flex items-center gap-2">
+				Scheduled
+				{#if !data.isThisMonth}
+					<a
+						href="/w/{slug}/calendar"
+						class="press tracking-normal normal-case"
+						style="color: var(--accent-ink)">· Back to this month</a
+					>
+				{/if}
+			</p>
 			<h1 class="mt-1 truncate text-[28px]">{data.month.label}</h1>
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
@@ -93,29 +163,35 @@
 	</div>
 
 	<!--
-		In and out, never netted. A single figure would hide the shape of the month:
-		£4,000 in and £3,900 out is a very different month from £100 in and nothing
-		out, and they net to the same number.
-
-		Stacked, one ledger line each. Side by side, two five-figure amounts and
-		their overlines had half a phone's width apiece and read as cramped.
+		The same statement every Plan page opens on. Going out is the figure,
+		because it's what a month is planned around; coming in is said beside it,
+		never netted against it. A single net figure would hide the shape of the
+		month: £4,000 in and £3,900 out is a very different month from £100 in and
+		nothing out, and they net to the same number.
 	-->
-	<div class="card mt-4 px-4">
-		<div class="hairline flex items-baseline justify-between gap-3 py-3">
-			<p class="section-label">Coming in</p>
-			<p class="num text-[20px] font-semibold" style="color: var(--approve)">
-				{formatMinor(data.month.inMinor, currency)}
-			</p>
-		</div>
-		<div class="flex items-baseline justify-between gap-3 py-3">
-			<p class="section-label">Going out</p>
-			<p class="num text-[20px] font-semibold" style="color: var(--ink)">
-				{formatMinor(data.month.outMinor, currency)}
-			</p>
-		</div>
+	<div class="mt-4">
+		<HeroCard
+			label="{data.month.label} at a glance"
+			overline="{monthName} · {data.isThisMonth ? 'still to go out' : 'going out'}"
+			minor={data.month.outMinor}
+			{currency}
+		>
+			{#snippet line()}
+				<span class="num" style="color: var(--approve)"
+					>+{formatMinor(data.month.inMinor, currency)}</span
+				> coming in
+			{/snippet}
+		</HeroCard>
 	</div>
 
-	<div class="mt-5 grid grid-cols-7 gap-1 px-0.5">
+	<div
+		class="mt-5 grid grid-cols-7 gap-1 px-0.5"
+		ontouchstart={onTouchStart}
+		ontouchend={onTouchEnd}
+		style="touch-action: pan-y"
+		role="group"
+		aria-label="{data.month.label}, by day"
+	>
 		{#each WEEKDAYS as w, i (i)}
 			<div class="pb-1 text-center text-[11px] font-semibold" style="color: var(--ink-3)">{w}</div>
 		{/each}
@@ -147,7 +223,7 @@
 					: ''}"
 				style="background: {busy ? 'var(--surface-2)' : 'transparent'}; box-shadow: {isToday
 					? 'inset 0 0 0 1.5px var(--ws-accent)'
-					: 'none'}"
+					: 'none'}; opacity: {isPast(d.day) ? 0.45 : 1}"
 			>
 				<span
 					class="num text-[12px] {isToday ? 'font-bold' : ''}"
@@ -202,7 +278,7 @@
 				style="background: var(--approve)"
 				aria-hidden="true"
 			></span>
-			money in that day as well
+			Money comes in that day as well
 		</p>
 	{/if}
 
@@ -212,9 +288,70 @@
 			they're set up under <a
 				href="/w/{slug}/recurring"
 				class="font-medium"
-				style="color: var(--accent)">Plan</a
+				style="color: var(--accent-ink)">Plan</a
 			>.
 		</p>
+	{/if}
+
+	{#if agenda.length > 0}
+		<section class="mt-6 space-y-2" aria-label="Coming up">
+			<p class="section-label px-1">{data.isThisMonth ? 'Coming up' : `In ${monthName}`}</p>
+			<div class="card overflow-hidden">
+				{#each agenda as d, i (d.day)}
+					{@const isToday = data.todayDay === d.day}
+					<button
+						type="button"
+						onclick={() => (openDay = d.day)}
+						class="row-tap flex w-full items-start gap-3.5 px-4 py-3 text-left"
+						style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}
+					>
+						<!-- The date as a printed tab: weekday over the day number. -->
+						<span class="w-9 shrink-0 pt-0.5 text-center">
+							<span
+								class="block text-[11px] font-semibold uppercase"
+								style="color: {isToday ? 'var(--accent-ink)' : 'var(--ink-3)'}"
+								>{isToday ? 'Today' : weekdayOf(d.day)}</span
+							>
+							<span
+								class="num block font-[family-name:var(--font-display)] text-[20px] leading-tight font-bold"
+								style="color: {isToday ? 'var(--accent-ink)' : 'var(--ink)'}">{d.day}</span
+							>
+						</span>
+						<span class="min-w-0 flex-1 space-y-1.5">
+							{#each d.entries as e (e.sourceId + e.label)}
+								<span class="flex items-baseline gap-3">
+									<span class="min-w-0 flex-1">
+										<span class="block truncate text-[15px]" style="color: var(--ink)"
+											>{e.label}</span
+										>
+										<span class="block text-[12px]" style="color: {kindColor(e.kind)}"
+											>{kindLabel(e)}</span
+										>
+									</span>
+									<span
+										class="num shrink-0 text-[15px] {e.direction === 'none' ? '' : 'font-semibold'}"
+										style="color: {e.direction === 'in'
+											? 'var(--approve)'
+											: e.direction === 'none'
+												? 'var(--ink-3)'
+												: 'var(--ink)'}; {e.estimate
+											? 'text-decoration: underline dotted; text-underline-offset: 3px;'
+											: ''}"
+									>
+										{e.direction === 'in' ? '+' : ''}{formatMinor(e.amountMinor, currency)}
+									</span>
+								</span>
+							{/each}
+						</span>
+					</button>
+				{/each}
+			</div>
+			{#if agenda.some((d) => d.entries.some((e) => e.estimate))}
+				<p class="px-1 text-[12px] leading-relaxed" style="color: var(--ink-3)">
+					Dotted figures are estimates: what those bills cost last time.
+				</p>
+			{/if}
+		</section>
 	{/if}
 </div>
 
@@ -315,13 +452,7 @@
 							<span class="min-w-0 flex-1">
 								<span class="block truncate text-[15px]" style="color: var(--ink)">{e.label}</span>
 								<span class="mt-0.5 block text-[12px]" style="color: {kindColor(e.kind)}">
-									{e.kind === 'income'
-										? 'Expected in'
-										: e.kind === 'saving'
-											? 'Set aside'
-											: e.kind === 'decision'
-												? 'Comes back to decide'
-												: 'Bill'}{e.estimate ? ' · estimated' : ''}
+									{kindLabel(e)}
 								</span>
 							</span>
 							{#if e.direction !== 'none'}
