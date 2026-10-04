@@ -552,7 +552,7 @@
 					<!-- Allowance: read here, managed where buckets are. -->
 					<a
 						href="/w/{slug}/buckets"
-						class="press hairline flex items-center gap-3 py-3"
+						class="press flex items-center gap-3 py-3 {self ? '' : 'hairline'}"
 						onclick={closeSheet}
 					>
 						<PiggyBank class="h-4 w-4 shrink-0" style="color: var(--ws-accent)" />

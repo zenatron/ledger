@@ -296,40 +296,39 @@
 	 * row made that read as a mistake. The coloured cards all mean something
 	 * happened to a request; income is the ground they sit against, not a verdict.
 	 */
-	const lifetimeStats = $derived([
-		{ label: 'Earned', minor: data.earnedMinor, tone: 'var(--ink)', hint: 'Income recorded' },
-		{
-			label: 'Approved',
-			minor: data.verdicts.approvedMinor,
-			tone: 'var(--approve)',
-			hint: 'Total spent'
-		},
-		{ label: 'Saved', minor: data.savedMinor, tone: 'var(--seal)', hint: 'Set aside' }
-	]);
+	type LifetimeStat = { label: string; minor: bigint; tone: string; hint: string };
 
 	/*
-	 * The four verdicts, paired: money that came back, then money that never
-	 * left. Each pair shares a card and a rule, which is what marks them as a
-	 * pair — set side by side they'd just read as more tiles.
+	 * Three rows, widest figures first, each row one idea:
 	 *
-	 * They stack rather than sit two-across because the figure is what breaks
-	 * first here. A third of the row already only just holds six figures at
-	 * 16px tabular; a quarter of it would break at four. Stacked, each figure
-	 * gets half the row — more room than the money tiles above have.
+	 *   Earned · Approved             money in, money spent: the largest
+	 *                                 figures, so they get half the row each
+	 *   Saved · Refunded              money kept back: set aside, or returned
+	 *   Denied · Cancelled · Let go   money that never left: the smallest
+	 *                                 figures, which a third of the row holds
+	 *
+	 * It was Earned, Approved and Saved three across, which put the two longest
+	 * numbers in the narrowest cells ($248,880.00 already met its tile's edge),
+	 * and the four verdicts in two stacked pair cards that hid what three of
+	 * them share.
 	 */
-	const lifetimePairs = $derived([
+	const lifetimeRows = $derived<LifetimeStat[][]>([
 		[
+			{ label: 'Earned', minor: data.earnedMinor, tone: 'var(--ink)', hint: 'Income recorded' },
+			{
+				label: 'Approved',
+				minor: data.verdicts.approvedMinor,
+				tone: 'var(--approve)',
+				hint: 'Total spent'
+			}
+		],
+		[
+			{ label: 'Saved', minor: data.savedMinor, tone: 'var(--seal)', hint: 'Set aside' },
 			{
 				label: 'Refunded',
 				minor: data.verdicts.refundedMinor,
 				tone: 'var(--info)',
 				hint: 'Came back'
-			},
-			{
-				label: 'Cancelled',
-				minor: data.verdicts.cancelledMinor,
-				tone: 'var(--ink-3)',
-				hint: 'Voided'
 			}
 		],
 		[
@@ -338,6 +337,12 @@
 				minor: data.verdicts.deniedMinor,
 				tone: 'var(--deny)',
 				hint: 'Turned down'
+			},
+			{
+				label: 'Cancelled',
+				minor: data.verdicts.cancelledMinor,
+				tone: 'var(--ink-3)',
+				hint: 'Voided'
 			},
 			{
 				label: 'Let go',
@@ -1130,8 +1135,8 @@
 		are running figures for the whole workspace, so they don't change as you
 		swipe through months.
 
-		Two rows that each mean something: what money did (in, out, set aside),
-		then what happened to requests (returned, refused, withdrawn).
+		Three rows, widest figures first: in and spent, kept back, never left.
+		See lifetimeRows.
 	-->
 	<!--
 		One tile, both grids. Label, figure and hint sit on tight line boxes with
@@ -1139,7 +1144,7 @@
 		so its half-leading padded the gap above it and not the one below, and the
 		label sat visibly further from the number than the hint did.
 	-->
-	{#snippet lifetimeTile(stat: { label: string; minor: bigint; tone: string; hint: string })}
+	{#snippet lifetimeTile(stat: LifetimeStat)}
 		{@const fig = figure(stat.minor)}
 		<p
 			class="text-[11px] leading-none font-semibold tracking-[0.08em] uppercase"
@@ -1154,16 +1159,11 @@
 	{/snippet}
 	<div>
 		<p class="section-label mb-2 px-1">Lifetime</p>
-		<div class="grid grid-cols-3 gap-2">
-			{#each lifetimeStats as stat (stat.label)}
-				<div class="card p-3.5">{@render lifetimeTile(stat)}</div>
-			{/each}
-		</div>
-		<div class="mt-2 grid grid-cols-2 gap-2">
-			{#each lifetimePairs as pair (pair[0].label)}
-				<div class="card">
-					{#each pair as stat, i (stat.label)}
-						<div class="p-3.5 {i === 0 ? 'hairline' : ''}">{@render lifetimeTile(stat)}</div>
+		<div class="space-y-2">
+			{#each lifetimeRows as row (row[0].label)}
+				<div class="grid gap-2 {row.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}">
+					{#each row as stat (stat.label)}
+						<div class="card p-3.5" data-life-tile={stat.label}>{@render lifetimeTile(stat)}</div>
 					{/each}
 				</div>
 			{/each}

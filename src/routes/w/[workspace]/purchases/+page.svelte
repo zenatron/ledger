@@ -763,6 +763,10 @@
 	<div class="flex items-center justify-between {kind === 'total' ? '' : 'mt-1.5'}">
 		<span style="color: {kind === 'total' ? 'var(--ink)' : 'var(--ink-3)'}">{label}</span>
 		<!--
+			Money in is green, as on the Income page, the calendar and the statement;
+			the outgoing lines stay ink. Labels stay ink too: the tone colour of the
+			narration above is the one signal here that must read at a glance.
+
 			A dotted figure is a projection, not a measurement. Same notation as the
 			calendar, for the same reason and deliberately nowhere else: it only
 			carries meaning while it stays rare.
@@ -774,7 +778,9 @@
 					? 'var(--deny)'
 					: 'var(--ink)'
 				: kind === 'add'
-					? 'var(--ink)'
+					? minor > 0n
+						? 'var(--approve)'
+						: 'var(--ink)'
 					: 'var(--ink-3)'}; {estimate
 				? 'text-decoration: underline dotted; text-underline-offset: 3px;'
 				: ''}"
@@ -868,7 +874,10 @@
 						class="mt-1.5 flex items-start gap-1.5 text-[13px] leading-snug"
 						style="color: {narrationColor}"
 					>
-						<Sparkles class="mt-[3px] h-3.5 w-3.5 shrink-0" />
+						<!-- Harmony's mark, in the accent as it is everywhere Harmony speaks.
+						     The words carry the tone (amber when tight, red when over); the
+						     mark only says who is speaking, so it doesn't change with them. -->
+						<Sparkles class="mt-[3px] h-3.5 w-3.5 shrink-0" style="color: var(--ws-accent)" />
 						<span>{narration?.text}</span>
 					</p>
 				{/if}

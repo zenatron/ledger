@@ -374,7 +374,11 @@
 					</div>
 					<div class="mt-1 max-h-64 overflow-y-auto">
 						{#each scanRows as r, i (i)}
-							<div class="flex items-baseline gap-2 py-1.5 text-[13px] {i ? 'hairline' : ''}">
+							<div
+								class="flex items-baseline gap-2 py-1.5 text-[13px] {i < scanRows.length - 1
+									? 'hairline'
+									: ''}"
+							>
 								<span class="num shrink-0" style="color: var(--ink-3)">{r.date}</span>
 								<span class="min-w-0 flex-1 truncate" style="color: var(--ink-2)"
 									>{r.description || '·'}</span

@@ -25,7 +25,13 @@
 	 * A third segment would say it is a sibling of Recurring and Buckets, and it
 	 * isn't: it's a view *across* both.
 	 */
-	let { actions }: { actions?: Snippet } = $props();
+	/**
+	 * `tools` are a page's own secondary buttons (Recurring's sort and group);
+	 * `primary` is its + New. The calendar sits between them, always directly
+	 * left of + New, so switching Recurring ↔ Buckets leaves the calendar and
+	 * + New in exactly the same place under the thumb, whatever else a page adds.
+	 */
+	let { tools, primary }: { tools?: Snippet; primary?: Snippet } = $props();
 
 	let slug = $derived(page.params.workspace);
 	let current = $derived(page.url.pathname.includes('/buckets') ? 'buckets' : 'recurring');
@@ -40,6 +46,7 @@
 	<div class="flex items-center justify-between gap-3 px-1 pt-1">
 		<h1 class="text-[28px]">Plan</h1>
 		<div class="flex items-center gap-2">
+			{@render tools?.()}
 			<a
 				href="/w/{slug}/calendar"
 				class="press icon-btn"
@@ -48,7 +55,7 @@
 			>
 				<CalendarDays class="h-4 w-4" />
 			</a>
-			{@render actions?.()}
+			{@render primary?.()}
 		</div>
 	</div>
 	<Segmented
