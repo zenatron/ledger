@@ -44,7 +44,8 @@
 	 */
 	import { ArrowRight } from '@lucide/svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
-	import Money from '$lib/components/Money.svelte';
+	import HeroCard from '$lib/components/HeroCard.svelte';
+	import Ribbon from '$lib/components/Ribbon.svelte';
 	import { formatMinor } from '$lib/money-format';
 	import { ledgerLink, NO_CATEGORY } from '$lib/ledger-filters';
 
@@ -86,14 +87,6 @@
 		if (f > 0 && f < 0.01) return '<1%';
 		return `${Math.round(f * 100)}%`;
 	}
-
-	// The ribbon grows in from nothing once, on mount, so the proportions arrive
-	// as a gesture rather than a flash. Two frames so there is a from-state.
-	let drawn = $state(false);
-	$effect(() => {
-		const id = requestAnimationFrame(() => requestAnimationFrame(() => (drawn = true)));
-		return () => cancelAnimationFrame(id);
-	});
 
 	// The chosen chip is brought into view — it may be the smallest category,
 	// last on the rail, and arriving by link or by tapping the ribbon would
@@ -156,55 +149,31 @@
 	}
 </script>
 
-<section
-	class="card-lg grain relative overflow-hidden p-5 pb-4"
-	style="background: radial-gradient(120% 90% at 100% -20%, color-mix(in oklab, {focus?.color ??
-		'var(--ws-accent)'} 22%, transparent), transparent 62%), var(--surface); transition: background var(--dur-slow) var(--ease-out)"
-	aria-label="Recurring spending by category"
+<HeroCard
+	label="Recurring spending by category"
+	overline="{headline.overline} · per month"
+	icon={focus?.icon}
+	minor={headline.monthly}
+	{currency}
+	tint={focus?.color ?? 'var(--ws-accent)'}
 >
-	<!-- Text first, as every hero here is: the overline names what the figure is. -->
-	<p class="section-label flex items-center gap-1.5">
-		{#if focus?.icon}<span class="text-[13px] tracking-normal normal-case">{focus.icon}</span>{/if}
-		<span>{headline.overline} · per month</span>
-	</p>
-	<Money
-		minor={headline.monthly}
-		{currency}
-		block
-		class="mt-2 font-[family-name:var(--font-display)] text-[length:var(--fs-hero)] leading-none font-bold"
-	/>
-	<p class="mt-2 text-[14px]" style="color: var(--ink-2)">
+	{#snippet line()}
 		<span class="num">{formatMinor(headline.yearly, currency)}</span> a year
 		<span style="color: var(--ink-3)">· {headline.line}</span>
-	</p>
+	{/snippet}
 
 	{#if costs.length > 0}
-		<!--
-			The ribbon. Each piece is a category's share of the month, in its own
-			colour, separated by a hairline of the card so neighbours of similar
-			hue stay two things. With a category chosen, the rest recede rather
-			than vanish: the part is only meaningful against the whole.
-		-->
-		<div
-			class="mt-5 flex h-3 w-full gap-[2px] overflow-hidden rounded-full"
-			style="background: var(--surface-2)"
-			role="img"
-			aria-label={costs.map((c) => `${c.name} ${pct(share(c.monthlyMinor))}`).join(', ')}
-		>
-			{#each costs as c (c.key)}
-				{@const on = !focus || focus.key === c.key}
-				<button
-					type="button"
-					tabindex="-1"
-					aria-hidden="true"
-					onclick={() => pick(c.key)}
-					class="ribbon-part h-full"
-					style="flex-basis: {drawn
-						? share(c.monthlyMinor) * 100
-						: 0}%; background: {c.color}; opacity: {on ? 1 : 0.2}"
-				></button>
-			{/each}
-		</div>
+		<Ribbon
+			class="mt-5"
+			parts={costs.map((c) => ({
+				key: c.key,
+				label: c.name,
+				color: c.color,
+				minor: c.monthlyMinor
+			}))}
+			focus={focus?.key ?? null}
+			onpick={pick}
+		/>
 
 		<!--
 			The chips double as the legend. Scrolls sideways rather than wrapping:
@@ -274,27 +243,9 @@
 			</span>
 		</a>
 	{/if}
-</section>
+</HeroCard>
 
 <style>
-	.ribbon-part {
-		flex-grow: 0;
-		flex-shrink: 0;
-		min-width: 0;
-		cursor: pointer;
-		transition:
-			flex-basis 700ms var(--ease-out),
-			opacity var(--dur) var(--ease-out);
-	}
-	.ribbon-part:first-child {
-		border-radius: var(--r-full) 0 0 var(--r-full);
-	}
-	.ribbon-part:last-child {
-		border-radius: 0 var(--r-full) var(--r-full) 0;
-	}
-	.ribbon-part:only-child {
-		border-radius: var(--r-full);
-	}
 	.rail-chip {
 		display: inline-flex;
 		flex-shrink: 0;
@@ -315,6 +266,12 @@
 	.chip-rail {
 		scrollbar-width: none;
 		scroll-snap-type: x proximity;
+		/* The rail bleeds to the card's edges (-mx-5) and pads itself back in
+		   (px-5), but a snap point aligns to the scrollport, not the padding:
+		   without this, proximity snapping pulled "All" flush against the card's
+		   left edge on first paint. Matches px-5 so snapped chips rest where the
+		   text above them starts. */
+		scroll-padding-inline: 1.25rem;
 		/* Faded on the right only, where the rest of the chips wait; a fade on
 		   the left would sit over "All" before anything has been scrolled. */
 		-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
@@ -325,10 +282,5 @@
 	}
 	.rail-chip {
 		scroll-snap-align: start;
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.ribbon-part {
-			transition: none;
-		}
 	}
 </style>

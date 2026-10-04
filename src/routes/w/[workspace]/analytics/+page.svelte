@@ -9,6 +9,7 @@
 	import CategoryRing from '$lib/components/CategoryRing.svelte';
 	import Segmented from '$lib/components/Segmented.svelte';
 	import { settleUp } from '$lib/domain/household/settlement';
+	import PeriodStepper from '$lib/components/PeriodStepper.svelte';
 	import { ChevronRight, Map as MapIcon, MapPin, X, Sparkles } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { ledgerLink } from '$lib/ledger-filters';
@@ -434,49 +435,13 @@
 		class="material sticky z-10 -mx-4 flex items-center justify-between gap-1 px-3 py-2"
 		style="top: var(--header-h, 0px); background: color-mix(in oklab, var(--paper) 94%, transparent); box-shadow: 0 0.5px 0 var(--hairline)"
 	>
-		{#if data.hasPrev}
-			<button
-				onclick={() => void navigate('prev')}
-				class="press flex h-9 w-9 items-center justify-center rounded-full"
-				style="color: var(--ink-3)"
-				aria-label="Previous"
-			>
-				<svg
-					width="18"
-					height="18"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.4"
-					stroke-linecap="round"
-					stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg
-				>
-			</button>
-		{:else}
-			<div class="h-9 w-9"></div>
-		{/if}
-		<span class="text-[17px] font-semibold" style="color: var(--ink)">{data.label}</span>
-		{#if data.hasNext}
-			<button
-				onclick={() => void navigate('next')}
-				class="press flex h-9 w-9 items-center justify-center rounded-full"
-				style="color: var(--ink-3)"
-				aria-label="Next"
-			>
-				<svg
-					width="18"
-					height="18"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.4"
-					stroke-linecap="round"
-					stroke-linejoin="round"><path d="M9 18l6-6-6-6" /></svg
-				>
-			</button>
-		{:else}
-			<div class="h-9 w-9"></div>
-		{/if}
+		<div class="flex-1">
+			<PeriodStepper
+				label={data.label}
+				prev={data.hasPrev ? { onclick: () => void navigate('prev') } : null}
+				next={data.hasNext ? { onclick: () => void navigate('next') } : null}
+			/>
+		</div>
 	</div>
 
 	<!--

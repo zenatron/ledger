@@ -32,7 +32,8 @@
 
 	let text = $derived.by(() => {
 		const body = formatMinor(minor < 0n ? -minor : minor, currency);
-		const prefix = minor < 0n ? '−' : sign ? '+' : '';
+		// Zero carries no sign: "+$0.00" under Spending read as money coming in.
+		const prefix = minor < 0n ? '−' : sign && minor > 0n ? '+' : '';
 		// The sign goes with the digits when masked: a leading − would announce
 		// "you're under", which is exactly what the mask is meant to withhold.
 		return masked ? maskAmount(body) : prefix + body;

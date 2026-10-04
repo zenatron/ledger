@@ -14,8 +14,12 @@ export async function GET(ctx: WorkspaceContext, { url }: { url: URL }) {
 	const now = ctx.deps.clock.now();
 	const db = ctx.db;
 	const scope = { workspaceId: ctx.workspace.id, viewerId: ctx.member.id };
+	const opts = ledgerOptsFromUrl(url.searchParams, ctx.workspace.timezone);
 	const feed = await listLedger(db, scope, now, {
-		...ledgerOptsFromUrl(url.searchParams, ctx.workspace.timezone),
+		...opts,
+		// Page two must be filtered exactly like page one, which fell back to the
+		// saved preference when the URL didn't say.
+		includeMovements: opts.includeMovements ?? ctx.member.includeLedgerMovements,
 		limit: 20,
 		// Clamped: a negative OFFSET is a Postgres error, not an empty page.
 		offset: Math.max(0, parseInt(url.searchParams.get('offset') ?? '0') || 0)

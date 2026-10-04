@@ -26,7 +26,13 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 	const ws = ctx.workspace;
 	// Filters are a URL concern, not client state: they change what the server
 	// pages over, and they make the view shareable and restorable.
-	const opts = ledgerOptsFromUrl(url.searchParams, ws.timezone);
+	const parsed = ledgerOptsFromUrl(url.searchParams, ws.timezone);
+	// The URL wins when it says; otherwise this member's saved preference. Read
+	// here, on the server, so the first paint already has the right rows.
+	const opts = {
+		...parsed,
+		includeMovements: parsed.includeMovements ?? ctx.member.includeLedgerMovements
+	};
 	const scope = { workspaceId: ws.id, viewerId: ctx.member.id };
 
 	/*
@@ -176,7 +182,7 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 		members: membersAll
 			.filter((m) => m.member.status === 'active')
 			.map((m) => ({ id: m.member.id, name: m.user.displayName })),
-		includeMovements: opts.includeMovements ?? ctx.member.includeLedgerMovements,
+		includeMovements: opts.includeMovements,
 		// How much of the headline this member wants legible on arrival. Server-side
 		// so a masked number never renders before the client can hide it.
 		safeToSpendDisplay: toDiscretionMode(ctx.member.safeToSpendDisplay),

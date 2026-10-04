@@ -1,17 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import Money from '$lib/components/Money.svelte';
+	import PeriodStepper from '$lib/components/PeriodStepper.svelte';
 	import { ledgerLink } from '$lib/ledger-filters';
 	import { calDateInZone } from '$lib/domain/time/zoned';
 	import { addDays, isoWeekday } from '$lib/domain/recurrence/rrule';
-	import {
-		Sparkles,
-		Printer,
-		ChevronLeft,
-		ChevronRight,
-		Download,
-		FileCheck
-	} from '@lucide/svelte';
+	import { Sparkles, Printer, ChevronRight, Download, FileCheck } from '@lucide/svelte';
 
 	let { data } = $props();
 	const slug = $derived(page.params.workspace!);
@@ -112,33 +106,17 @@
 
 <!-- Month navigation: screen only, never printed. -->
 <header
-	class="screen-only sticky top-0 z-10 flex items-center justify-between px-4 py-3"
+	class="screen-only sticky top-0 z-10 px-4 py-2.5"
 	style="background: color-mix(in oklab, var(--paper) 92%, transparent); box-shadow: 0 0.5px 0 var(--hairline)"
 >
-	<a
-		class="grid h-9 w-9 place-items-center rounded-full"
-		style="color: {data.hasPrev ? 'var(--ink-2)' : 'var(--ink-4)'}; pointer-events: {data.hasPrev
-			? 'auto'
-			: 'none'}"
-		href="?month={data.prevMonth}"
-		aria-label="Previous month"><ChevronLeft size={20} /></a
-	>
-	<div class="text-center">
-		<p class="text-[15px] font-semibold" style="color: var(--ink)">{data.label}</p>
-		{#if data.isPartial}
-			<p class="text-[10px] font-medium tracking-wide uppercase" style="color: var(--ink-3)">
-				In progress
-			</p>
-		{/if}
-	</div>
-	<a
-		class="grid h-9 w-9 place-items-center rounded-full"
-		style="color: {data.hasNext ? 'var(--ink-2)' : 'var(--ink-4)'}; pointer-events: {data.hasNext
-			? 'auto'
-			: 'none'}"
-		href="?month={data.nextMonth}"
-		aria-label="Next month"><ChevronRight size={20} /></a
-	>
+	<PeriodStepper
+		label={data.label}
+		sublabel={data.isPartial ? 'In progress' : null}
+		prev={data.hasPrev ? { href: `?month=${data.prevMonth}` } : null}
+		next={data.hasNext ? { href: `?month=${data.nextMonth}` } : null}
+		prevLabel="Previous month"
+		nextLabel="Next month"
+	/>
 </header>
 
 <article class="sheet w-full pt-6 pb-24">

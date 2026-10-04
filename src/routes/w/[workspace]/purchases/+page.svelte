@@ -314,45 +314,35 @@
 		});
 	}
 
-	// The "Bucket activity" toggle is remembered per user: it's a lasting
-	// preference about how you read the ledger, not a per-visit filter.
-	// Persisted to the DB so it follows you across devices; localStorage is a
-	// fast cache for the initial mount before the server round-trip completes.
-	const MOVEMENTS_KEY = 'ledger-movements';
-
-	/** Reloads from the server: it changes what gets paged over, not just shown. */
+	/*
+	 * The "Bucket activity" toggle is remembered per member, on the server: it's
+	 * a lasting preference about how you read the ledger, not a per-visit
+	 * filter, and the load reads it whenever the URL doesn't say. That is what
+	 * lets the first paint carry the right rows. The page used to restore the
+	 * choice from localStorage after mount, with a second navigation, so bucket
+	 * rows popped in a beat after every arrival on the tab.
+	 *
+	 * The toggle writes the explicit value into the URL too, so the reload it
+	 * triggers can't race the save.
+	 */
 	function toggleMovements() {
-		const next = data.includeMovements ? '' : '1';
-		const on = next === '1';
-		try {
-			localStorage.setItem(MOVEMENTS_KEY, on ? '1' : '0');
-		} catch {
-			/* storage unavailable — still applies for this session */
-		}
-		// Persist to the server in the background — fire-and-forget so the toggle
-		// feels instant; the server-side load already reads from the DB so the
-		// next page load naturally reflects the saved value.
+		const on = !data.includeMovements;
 		fetch(`/w/${page.params.workspace}/settings/member-flag`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ flag: 'includeLedgerMovements', value: on })
 		}).catch(() => {
-			/* silent — preference didn't save, but the toggle already moved */
+			/* silent: the preference didn't save, but this view already applies it */
 		});
-		void navigateWith({ movements: next });
+		void navigateWith({ movements: on ? '1' : '0' });
 	}
 
-	// Apply the stored preference on first load, unless the URL already says
-	// (e.g. a shared or drill-through link, which wins and updates the pref).
+	// Retire the old client-side copy of the preference; the server holds it now.
 	onMount(() => {
 		try {
-			if (page.url.searchParams.has('movements')) {
-				localStorage.setItem(MOVEMENTS_KEY, data.includeMovements ? '1' : '0');
-			} else if (localStorage.getItem(MOVEMENTS_KEY) === '1') {
-				void navigateWith({ movements: '1' }, { replace: true });
-			}
+			localStorage.removeItem('ledger-movements');
 		} catch {
-			/* storage unavailable — no persistence this session */
+			/* storage unavailable: nothing to clean up */
 		}
 	});
 
@@ -556,8 +546,13 @@
 			// scope is the reactivity footgun svelte/prefer-svelte-reactivity warns
 			// about.
 			const qs = [...page.url.searchParams.entries()]
-				.filter(([k]) => k !== 'offset')
-				.concat([['offset', String(items.length)]])
+				.filter(([k]) => k !== 'offset' && k !== 'movements')
+				// Said explicitly: page one may have taken it from the saved
+				// preference, and page two must match it even if that changed since.
+				.concat([
+					['offset', String(items.length)],
+					['movements', data.includeMovements ? '1' : '0']
+				])
 				.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
 				.join('&');
 			const res = await fetch(`/w/${slug}/purchases/data?${qs}`);
@@ -1016,8 +1011,10 @@
 		</div>
 	{/if}
 
+	<!-- 28px, every tab's masthead size. It was the one tab set at the larger
+	     h1 default, so the title jumped size as you moved along the tab bar. -->
 	<div class="flex items-end justify-between px-1 pt-1 pb-2">
-		<h1>Ledger</h1>
+		<h1 class="text-[28px]">Ledger</h1>
 		<span class="num pb-1 text-[13px]" style="color: var(--ink-3)">
 			{#if feedPending && items.length === 0}
 				<!-- The count streams with the feed; a block of paper stands in for

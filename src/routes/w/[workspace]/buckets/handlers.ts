@@ -19,6 +19,7 @@ import {
 	type Recurrence
 } from '$lib/domain/recurrence/rrule';
 import { recurrenceFromFields } from '$lib/domain/recurrence/from-fields';
+import { annualMinor } from '$lib/domain/recurrence/cost';
 import { firstAccrualAt, materializeBucketAccruals } from '$lib/application/buckets';
 import { listMembers } from '$lib/repo/workspaces';
 import {
@@ -73,6 +74,10 @@ export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 				id: r.bucket.id,
 				name: r.bucket.name,
 				amountMinor: r.bucket.amountMinor,
+				// Every schedule on one scale, for the headline's "a month into".
+				monthlyMinor: parsed
+					? BigInt(Math.round(annualMinor(r.bucket.amountMinor, parsed) / 12))
+					: r.bucket.amountMinor,
 				currency: r.bucket.currency,
 				goalCapMinor: r.bucket.goalCapMinor,
 				color: r.bucket.color,

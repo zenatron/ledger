@@ -323,35 +323,44 @@
 		</p>
 	</div>
 
+	<!--
+		One card per group, topics separated by hairlines, the way the ledger and
+		Plan group their rows. It was a card per topic: sixteen identical floating
+		boxes, the stack of same-looking cards the design rules out, and the group
+		headings had nothing to hold together.
+	-->
 	{#each groups as group (group.label)}
-		<p class="section-label px-1 pt-2">{group.label}</p>
-		<div class="space-y-2">
-			{#each group.sections as s (s.id)}
-				{@const SIcon = HELP_ICONS[s.icon] ?? HELP_ICONS.card}
-				<details id={s.id} class="card overflow-hidden">
-					<summary
-						class="press flex cursor-pointer list-none items-center gap-3.5 p-4 [&::-webkit-details-marker]:hidden"
-					>
-						<span
-							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-							style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
+		<section class="space-y-2 pt-2" aria-label={group.label}>
+			<p class="section-label px-1">{group.label}</p>
+			<div class="card overflow-hidden">
+				{#each group.sections as s, i (s.id)}
+					{@const SIcon = HELP_ICONS[s.icon] ?? HELP_ICONS.card}
+					<details id={s.id} style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}>
+						<summary
+							class="row-tap flex cursor-pointer list-none items-center gap-3.5 px-4 py-3 [&::-webkit-details-marker]:hidden"
 						>
-							<SIcon class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
-						</span>
-						<span class="flex-1 text-[16px] font-medium" style="color: var(--ink)">{s.title}</span>
-						<ChevronDown class="chevron h-4 w-4" style="color: var(--ink-3)" />
-					</summary>
-					<div class="space-y-2.5 px-4 pb-4" style="padding-left: 4.25rem">
-						{#each s.body as para (para)}
-							<p class="text-[14px] leading-relaxed" style="color: var(--ink-2)">
-								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-								{@html render(para)}
-							</p>
-						{/each}
-					</div>
-				</details>
-			{/each}
-		</div>
+							<span
+								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+								style="background: color-mix(in oklab, var(--ws-accent) 18%, transparent)"
+							>
+								<SIcon class="h-[18px] w-[18px]" style="color: var(--ws-accent)" />
+							</span>
+							<span class="flex-1 text-[16px] font-medium" style="color: var(--ink)">{s.title}</span
+							>
+							<ChevronDown class="chevron h-4 w-4" style="color: var(--ink-3)" />
+						</summary>
+						<div class="space-y-2.5 px-4 pb-4" style="padding-left: 4.25rem">
+							{#each s.body as para (para)}
+								<p class="text-[14px] leading-relaxed" style="color: var(--ink-2)">
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html render(para)}
+								</p>
+							{/each}
+						</div>
+					</details>
+				{/each}
+			</div>
+		</section>
 	{/each}
 
 	<p class="px-1 pt-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">

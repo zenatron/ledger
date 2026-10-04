@@ -79,6 +79,21 @@ export function ledgerOptsFromUrl(params: URLSearchParams, timezone: string): Le
 		to: bounds?.to,
 		basis,
 		bbox: bbox ?? undefined,
-		includeMovements: bbox ? false : params.get('movements') === '1'
+		includeMovements: bbox ? false : movementsParam(params.get('movements'))
 	};
+}
+
+/**
+ * `movements=1` and `movements=0` are an explicit choice (the toggle, a shared
+ * link); absent means "no opinion", so the member's saved preference decides.
+ *
+ * Absent used to read as off. The saved preference was then never consulted,
+ * and the page made up for it on mount by navigating again with `movements=1`
+ * from localStorage, which painted the ledger without bucket rows and then
+ * popped them in a beat later on every visit to the tab.
+ */
+function movementsParam(raw: string | null): boolean | undefined {
+	if (raw === '1') return true;
+	if (raw === '0') return false;
+	return undefined;
 }
