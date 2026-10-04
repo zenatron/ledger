@@ -148,7 +148,7 @@
 
 			<div class="mt-4 grid grid-cols-2 gap-4">
 				<label class="block">
-					<span class="section-label mb-1.5 block">Reapproval threshold</span>
+					<span class="section-label mb-1.5 block">Ask again above</span>
 					<div class="flex items-center gap-2">
 						<input
 							name="reapprovalThresholdPct"

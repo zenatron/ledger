@@ -32,13 +32,14 @@
 		</header>
 
 		{#if data.workspaces.length > 0}
-			<div class="space-y-2">
-				{#each data.workspaces as ws (ws.slug)}
+			<!-- One list, rows ruled apart, like every other list in the app. -->
+			<div class="card overflow-hidden">
+				{#each data.workspaces as ws, i (ws.slug)}
 					{@const color = accentFor(ws)}
 					<a
 						href="/w/{ws.slug}"
-						class="card press flex items-center gap-3.5 overflow-hidden px-4 py-3.5"
-						style="box-shadow: var(--shadow-card), inset 0 0 0 0.5px var(--hairline)"
+						class="row-tap flex items-center gap-3.5 px-4 py-3.5"
+						style={i > 0 ? 'box-shadow: inset 0 0.5px 0 var(--hairline)' : ''}
 					>
 						<span
 							class="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] font-[family-name:var(--font-display)] text-[16px] font-bold text-white"
@@ -100,15 +101,13 @@
 		</div>
 
 		<div class="card space-y-3.5 p-5">
-			<p class="text-[13px] font-semibold tracking-[0.06em] uppercase" style="color: var(--ink-3)">
-				Join with invite code
-			</p>
+			<p class="section-label">Join with invite code</p>
 			<form method="POST" action="?/join" use:submit class="space-y-3.5">
 				<input
 					name="code"
 					aria-label="Invite code"
 					required
-					placeholder="e.g. 7XK2M9QRTB"
+					placeholder="7XK2M9QRTB"
 					autocapitalize="characters"
 					autocomplete="off"
 					spellcheck="false"
