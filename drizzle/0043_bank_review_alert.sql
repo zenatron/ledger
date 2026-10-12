@@ -1,0 +1,1 @@
+ALTER TABLE "bank_connection" ADD COLUMN "review_alert_pending_at" timestamp with time zone;

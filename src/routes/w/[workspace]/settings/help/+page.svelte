@@ -232,6 +232,17 @@
 					]
 				},
 				{
+					id: 'bank-sync',
+					icon: 'bank',
+					title: 'Bank sync',
+					body: [
+						'An owner can connect the household\u2019s bank through **SimpleFIN Bridge** under **Settings → Bank sync**, then choose which account feeds which card. Accounts nobody picks, like a savings account, stay out. Posted transactions arrive every six hours and land in Reconcile as one statement per card per month.',
+						'Two answers are given without asking. A transaction that matches a logged purchase on amount, date and description marks it cleared. One that pays for an approved request completes it at the charged amount, and if that is over the approved amount by more than the workspace allows, it goes back to the approver instead. Every automatic answer can be undone from Reconcile.',
+						'Everything else waits for a person, and nothing is ever logged for you. When a sync leaves something waiting, owners and whoever connected the bank get one notification: *3 bank transactions to review*. It carries only the count, never a merchant or an amount, and a newer one replaces the last. Syncs between 9pm and 8am hold it until the morning. Switch it off per channel under **Settings → Notifications**.',
+						'The connection is stored encrypted, so bank sync is only offered when the server has an encryption key. Disconnecting deletes the stored connection here, and the lines already brought in stay in Reconcile. To cut off access completely, also remove the app in your SimpleFIN Bridge account.'
+					]
+				},
+				{
 					id: 'pictures',
 					icon: 'sparkle',
 					title: 'Reading a bill, receipt or scan',

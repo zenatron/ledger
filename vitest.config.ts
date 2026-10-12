@@ -18,6 +18,12 @@ export default defineConfig({
 		// tests — they read the source tree instead of importing from it. They run
 		// here because `npm test` is what actually gets run in this project.
 		include: ['src/lib/**/*.test.ts', 'scripts/**/*.test.ts'],
-		environment: 'node'
+		environment: 'node',
+		// The database-backed tests build a fresh PGlite and replay every
+		// migration per test, and the first in a file also compiles the WASM
+		// engine. Under parallel load that setup alone ran past the 5s default,
+		// so tests failed before their first assertion and passed when rerun
+		// alone. The budget is for setup on a busy machine, not for slow logic.
+		testTimeout: 20_000
 	}
 });

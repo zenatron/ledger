@@ -38,7 +38,7 @@
 <div class="mx-auto max-w-lg space-y-4">
 	<a
 		href="/w/{slug}"
-		class="press -ml-1 inline-flex items-center gap-0.5 text-[15px]"
+		class="press -ml-1 inline-flex items-center gap-0.5 text-[14px] font-medium"
 		style="color: var(--ink-3)"
 	>
 		<ChevronLeft class="h-4 w-4" /> Settings
@@ -57,6 +57,14 @@
 			Reconcile, one statement per card per month. A charge that plainly matches a purchase already logged
 			is cleared. One that pays for an approved request completes it at the charged amount, and goes back
 			to the approver if it's over. Everything else waits for you there, with “Log this” a tap away.
+		</p>
+		<p class="mt-2 text-[13px] leading-relaxed" style="color: var(--ink-3)">
+			When a sync leaves something for you, owners get one notification with the count, between 8am
+			and 9pm. Turn it off under <a
+				href="/w/{slug}/settings/notifications"
+				class="font-medium"
+				style="color: var(--accent-ink)">Notifications</a
+			>.
 		</p>
 	</div>
 

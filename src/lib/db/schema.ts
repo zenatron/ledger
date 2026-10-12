@@ -784,6 +784,12 @@ export const bankConnection = pgTable(
 		lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
 		/** When a sync last succeeded — what the next fetch window starts from. */
 		lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+		/**
+		 * Set when a sync leaves new lines for a person and nobody has been told
+		 * yet; cleared by the claim that sends the alert. A sync at 3am leaves it
+		 * set, and the first sweep after the household's morning sends it.
+		 */
+		reviewAlertPendingAt: timestamp('review_alert_pending_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
 	},
 	(t) => [index('bank_connection_workspace_idx').on(t.workspaceId)]

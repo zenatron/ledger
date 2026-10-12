@@ -12,7 +12,8 @@ export type NotificationEventType =
 	| 'recurring_due'
 	| 'budget_exceeded'
 	| 'safe_to_spend'
-	| 'periodic_summary';
+	| 'periodic_summary'
+	| 'bank_review';
 
 export interface NotificationMessage {
 	title: string;

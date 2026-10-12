@@ -57,6 +57,7 @@ import {
 	type BankConnectionRow
 } from '$lib/repo/bank-feeds';
 import { approvedCandidates, countUnsettled, refreshMatchedCount } from '$lib/repo/statements';
+import { flushBankReviewAlerts, markReviewPending } from '$lib/application/bank-review-alerts';
 import type { BankFeed } from '$lib/ports/bank-feed';
 import type { Clock } from '$lib/ports/clock';
 import type { IdGenerator } from '$lib/ports/id-generator';
@@ -208,12 +209,19 @@ export interface SyncResult {
  * Sync one connection now. Failures are recorded on the connection, where the
  * settings page shows them, and rethrown as a `BankSyncError` for the caller
  * that pressed the button.
+ *
+ * A sync that leaves new lines for a person marks the connection for the
+ * "to review" alert (see bank-review-alerts). `actorMemberId` is whoever
+ * pressed "Sync now": the alert goes out at once to everyone else, and not to
+ * them, since they are looking at the result. The sweep passes none and sends
+ * in one pass after all its syncs, so a household with two banks hears once.
  */
 export async function syncConnection(
 	db: Db,
 	deps: Deps,
 	workspaceId: string,
-	connectionId: string
+	connectionId: string,
+	opts: { actorMemberId?: string } = {}
 ): Promise<SyncResult> {
 	const conn = await getConnection(db, workspaceId, connectionId);
 	if (!conn) throw new BankSyncError('That connection no longer exists.');
@@ -221,6 +229,7 @@ export async function syncConnection(
 	try {
 		const { result, warning } = await runSync(db, deps, conn, now);
 		await recordSyncResult(db, conn.id, now, { ok: true, warning });
+		await announceReview(db, deps, conn, result, now, opts.actorMemberId);
 		return result;
 	} catch (e) {
 		const message =
@@ -242,6 +251,39 @@ export async function syncConnection(
 	}
 }
 
+/**
+ * The alert's bookkeeping, after a sync has already succeeded. Best-effort like
+ * every notification: a failure here is logged and must never turn a good sync
+ * into a reported failure.
+ */
+async function announceReview(
+	db: Db,
+	deps: Deps,
+	conn: BankConnectionRow,
+	result: SyncResult,
+	now: Date,
+	actorMemberId: string | undefined
+): Promise<void> {
+	try {
+		if (result.toReview > 0) await markReviewPending(db, conn.id, now);
+		if (actorMemberId) {
+			await flushBankReviewAlerts(db, deps, {
+				workspaceId: conn.workspaceId,
+				excludeMemberId: actorMemberId
+			});
+		}
+	} catch (e) {
+		console.log(
+			JSON.stringify({
+				level: 'error',
+				msg: 'bank review alert failed',
+				connectionId: conn.id,
+				error: e instanceof Error ? e.message : String(e)
+			})
+		);
+	}
+}
+
 /** The sweep's entry: every connection not tried for a while. Returns lines added. */
 export async function syncDueConnections(db: Db, deps: Deps): Promise<number> {
 	const due = await connectionsDue(db, new Date(deps.clock.now().getTime() - SYNC_EVERY_MS));
@@ -253,6 +295,17 @@ export async function syncDueConnections(db: Db, deps: Deps): Promise<number> {
 			// Recorded on the connection; one bank's trouble must not stop the rest.
 		}
 	}
+	// Every tick, not only when something synced: an alert held back overnight
+	// goes out on the first tick after the household's morning.
+	await flushBankReviewAlerts(db, deps).catch((e) =>
+		console.log(
+			JSON.stringify({
+				level: 'error',
+				msg: 'bank review alert failed',
+				error: e instanceof Error ? e.message : String(e)
+			})
+		)
+	);
 	return added;
 }
 

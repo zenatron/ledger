@@ -119,7 +119,9 @@ export const actions: Actions = {
 			return fail(429, { error: 'Synced a moment ago. Try again in a few minutes.' });
 		}
 		try {
-			const result = await syncConnection(db, deps, locals.workspace!.id, id);
+			const result = await syncConnection(db, deps, locals.workspace!.id, id, {
+				actorMemberId: locals.member!.id
+			});
 			return { synced: result };
 		} catch (e) {
 			if (e instanceof BankSyncError) return fail(400, { error: e.message });
