@@ -105,7 +105,7 @@ function daysApart(a: Date, b: Date): number {
  * are dropped: "of", "co" and the like match nearly every descriptor a bank
  * emits, so they'd manufacture confidence rather than add it.
  */
-function tokensOf(c: MatchCandidate): string[] {
+function tokensOf(c: Pick<MatchCandidate, 'itemName' | 'merchantName'>): string[] {
 	return [c.merchantName ?? '', c.itemName]
 		.join(' ')
 		.toLowerCase()
@@ -119,7 +119,10 @@ function tokensOf(c: MatchCandidate): string[] {
  * still contain the merchant's name somewhere, so substring containment on a
  * normalised description is both cheap and surprisingly reliable.
  */
-function describes(line: RawStatementLine, c: MatchCandidate): boolean {
+export function describes(
+	line: RawStatementLine,
+	c: Pick<MatchCandidate, 'itemName' | 'merchantName'>
+): boolean {
 	const hay = line.normalizedDescription;
 	return tokensOf(c).some((t) => hay.includes(t));
 }

@@ -29,6 +29,8 @@ import { materializeDueRules } from '$lib/application/recurring';
 import { checkBudgetAlerts } from '$lib/application/budget-alerts';
 import { materializeBucketAccruals } from '$lib/application/buckets';
 import { sweepExpiredShares } from '$lib/repo/shares';
+import { syncDueConnections } from '$lib/application/bank-sync';
+import { bankSyncAvailable, bankSyncDeps } from '$lib/server/bank-sync';
 import { deleteExpiredSessions } from '$lib/server/auth/session';
 import { systemClock } from '$lib/infra/time/system-clock';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
@@ -117,6 +119,13 @@ export const init: ServerInit = async () => {
 			name: 'bucket accrual',
 			done: 'bucket accruals',
 			run: () => materializeBucketAccruals(getDb(), serverDeps())
+		},
+		{
+			// Paces itself: each connection is synced at most every few hours, so
+			// most sweeps find nothing due and cost one indexed read.
+			name: 'bank sync',
+			done: 'bank lines synced',
+			run: async () => (bankSyncAvailable() ? syncDueConnections(getDb(), bankSyncDeps()) : 0)
 		},
 		{
 			name: 'share cleanup',

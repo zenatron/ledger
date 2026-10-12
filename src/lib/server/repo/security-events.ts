@@ -16,6 +16,8 @@ export type SecurityAction =
 	| 'api_token.revoked'
 	| 'ntfy.target_set'
 	| 'ntfy.target_removed'
+	| 'bank.connected'
+	| 'bank.disconnected'
 	| 'workspace.settings_changed'
 	| 'workspace.deleted';
 

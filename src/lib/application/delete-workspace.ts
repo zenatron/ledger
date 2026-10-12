@@ -1,7 +1,10 @@
 import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
 import {
+	account,
 	approvalEvent,
+	bankConnection,
+	bankFeedAccount,
 	budget,
 	budgetAlertLog,
 	bucket,
@@ -16,6 +19,8 @@ import {
 	purchaseImage,
 	recurringRule,
 	session,
+	statementImport,
+	statementLine,
 	workspace,
 	workspaceMember
 } from '$lib/db/schema';
@@ -58,9 +63,18 @@ export async function deleteWorkspace(db: Db, workspaceId: string): Promise<void
 		await tx.delete(approvalEvent).where(inArray(approvalEvent.purchaseId, purchaseIds));
 		await tx.delete(notificationPref).where(inArray(notificationPref.workspaceMemberId, memberIds));
 
+		// Reconciliation and bank sync. Lines point at purchases, imports and bank
+		// connections at members, and imports and feed accounts at cards, so all of
+		// it goes before those.
+		await tx.delete(statementLine).where(eq(statementLine.workspaceId, workspaceId));
+		await tx.delete(statementImport).where(eq(statementImport.workspaceId, workspaceId));
+		await tx.delete(bankFeedAccount).where(eq(bankFeedAccount.workspaceId, workspaceId));
+		await tx.delete(bankConnection).where(eq(bankConnection.workspaceId, workspaceId));
+
 		// Direct children of the workspace. purchase, recurringRule, income and
 		// bucket all reference members and categories, so they precede those.
 		await tx.delete(purchase).where(eq(purchase.workspaceId, workspaceId));
+		await tx.delete(account).where(eq(account.workspaceId, workspaceId));
 		await tx.delete(recurringRule).where(eq(recurringRule.workspaceId, workspaceId));
 		await tx.delete(income).where(eq(income.workspaceId, workspaceId));
 		await tx.delete(budget).where(eq(budget.workspaceId, workspaceId));

@@ -165,6 +165,15 @@ purchases it stays unmatched and offers a ranked shortlist to choose from.
 Importing only marks lines as cleared, so a bank file cannot alter what you
 recorded.
 
+Or skip the file: **bank sync** pulls posted transactions in through
+[SimpleFIN Bridge](https://beta-bridge.simplefin.org) every few hours, into one
+rolling statement per card per month. A charge the matcher pairs with a logged
+purchase on amount, date _and_ description is cleared for you. One that plainly
+pays for an approved request completes it at the charged amount, and goes back
+to the approver if it is over the re-approval threshold. Everything else waits
+in Reconcile. Bank sync needs `SECRETS_KEY`, because the credential it stores
+reads your bank history.
+
 </td>
 </tr>
 </table>

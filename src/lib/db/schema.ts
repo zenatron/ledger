@@ -45,7 +45,10 @@ export const bucketStatus = pgEnum('bucket_status', ['active', 'paused', 'archiv
 // allows a third-party API for those who don't mind the privacy trade.
 export const aiMode = pgEnum('workspace_ai_mode', ['off', 'local', 'external']);
 export const bucketTxnType = pgEnum('bucket_txn_type', ['accrual', 'withdrawal', 'adjustment']);
-export const statementImportFormat = pgEnum('statement_import_format', ['csv', 'pdf']);
+// 'feed' is a rolling import written by bank sync (see `bank_connection`), one
+// per linked account per month, rather than a file somebody uploaded.
+export const statementImportFormat = pgEnum('statement_import_format', ['csv', 'pdf', 'feed']);
+export const bankConnectionStatus = pgEnum('bank_connection_status', ['ok', 'error']);
 /** A card or account statements arrive for. See the `account` table. */
 export const accountKind = pgEnum('account_kind', ['card', 'bank']);
 export const statementLineMatchState = pgEnum('statement_line_match_state', [
@@ -737,8 +740,84 @@ export const statementLine = pgTable(
 	(t) => [
 		index('statement_line_import_idx').on(t.importId),
 		index('statement_line_matched_purchase_idx').on(t.matchedPurchaseId),
-		uniqueIndex('statement_line_import_dedup_uq').on(t.importId, t.dedupHash)
+		uniqueIndex('statement_line_import_dedup_uq').on(t.importId, t.dedupHash),
+		// Bank sync sets `external_id` to the provider's transaction id, and the
+		// sync window deliberately overlaps the last one, so the same transaction
+		// arrives again and again. One row per transaction per workspace, however
+		// many times it is fetched. File imports leave it null and are unaffected.
+		uniqueIndex('statement_line_workspace_external_uq')
+			.on(t.workspaceId, t.externalId)
+			.where(sql`external_id is not null`)
 	]
+);
+
+/**
+ * A SimpleFIN connection: one bridge login, which can carry several accounts.
+ *
+ * `accessUrl` is the credential — `https://user:pass@bridge/simplefin` — and it
+ * reads the household's bank history, so it is only ever written sealed. The
+ * settings page refuses to connect at all without `SECRETS_KEY`, which is a
+ * stricter rule than the model key gets, on purpose: that key costs money if
+ * it leaks, this one costs privacy.
+ *
+ * `memberId` is who connected it, and syncing acts as them: the seal filter that
+ * decides which purchases a synced line may be matched against is theirs, just
+ * as it is the importer's for a file.
+ */
+export const bankConnection = pgTable(
+	'bank_connection',
+	{
+		id: uuid('id').primaryKey(),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspace.id),
+		memberId: uuid('member_id')
+			.notNull()
+			.references(() => workspaceMember.id),
+		/** What the bridge calls the institution(s), for the settings list. */
+		label: text('label').notNull(),
+		accessUrl: text('access_url').notNull(),
+		status: bankConnectionStatus('status').notNull().default('ok'),
+		/** The last failure in words a person can act on. Cleared by a good sync. */
+		lastError: text('last_error'),
+		/** When a sync was last tried, good or bad — what the sweep paces itself by. */
+		lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+		/** When a sync last succeeded — what the next fetch window starts from. */
+		lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
+	},
+	(t) => [index('bank_connection_workspace_idx').on(t.workspaceId)]
+);
+
+/**
+ * One account the bridge reports, and which ledger card it feeds.
+ *
+ * Every account the bridge returns gets a row, linked or not, so the settings
+ * page can offer it. Only rows with an `accountId` sync: an account nobody
+ * chose stays out of the ledger, which is the right default for the savings
+ * account that came along with the checking one.
+ */
+export const bankFeedAccount = pgTable(
+	'bank_feed_account',
+	{
+		id: uuid('id').primaryKey(),
+		connectionId: uuid('connection_id')
+			.notNull()
+			.references(() => bankConnection.id),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspace.id),
+		/** The bridge's id for the account. Stable across syncs. */
+		externalId: text('external_id').notNull(),
+		name: text('name').notNull(),
+		orgName: text('org_name'),
+		currency: text('currency').notNull(),
+		/** Balance as last reported, for display only. Nothing computes with it. */
+		balanceMinor: bigint('balance_minor', { mode: 'bigint' }),
+		balanceAt: timestamp('balance_at', { withTimezone: true }),
+		accountId: uuid('account_id').references(() => account.id)
+	},
+	(t) => [uniqueIndex('bank_feed_account_connection_ext_uq').on(t.connectionId, t.externalId)]
 );
 
 export const pushSubscription = pgTable('push_subscription', {

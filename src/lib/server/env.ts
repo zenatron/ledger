@@ -89,6 +89,24 @@ const EnvSchema = v.pipe(
 				)
 			)
 		),
+		/**
+		 * Hosts a SimpleFIN setup token may point at, comma-separated. Bank sync
+		 * POSTs to whatever URL a pasted token decodes to, so the server only
+		 * talks to bridges the operator has named. Bank sync also requires
+		 * SECRETS_KEY: the access URL it stores reads your bank history.
+		 */
+		SIMPLEFIN_HOSTS: v.optional(
+			v.pipe(
+				v.string(),
+				v.transform((s) =>
+					s
+						.split(',')
+						.map((h) => h.trim().toLowerCase())
+						.filter(Boolean)
+				)
+			),
+			'beta-bridge.simplefin.org,bridge.simplefin.org'
+		),
 		/** Disposable third-party bytes. Deliberately outside BLOB_DIR so backups
 		 *  don't carry hundreds of megabytes of somebody else's map; safe to delete. */
 		TILE_CACHE_DIR: v.optional(v.pipe(v.string(), v.nonEmpty()), './data/tiles')

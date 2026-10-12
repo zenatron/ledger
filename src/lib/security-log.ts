@@ -91,6 +91,12 @@ export function describeEvent(e: LogEntry): string {
 			return `${who} sent their notifications to ntfy topic “${d.topic}”`;
 		case 'ntfy.target_removed':
 			return `${who} turned off ntfy notifications`;
+		case 'bank.connected':
+			return d.label ? `${who} connected bank sync for ${d.label}` : `${who} connected bank sync`;
+		case 'bank.disconnected':
+			return d.label
+				? `${who} disconnected bank sync for ${d.label}`
+				: `${who} disconnected bank sync`;
 		case 'workspace.settings_changed':
 			return 'flag' in d
 				? `${who} turned ${d.value ? 'on' : 'off'} ${d.flag}`

@@ -24,8 +24,13 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
 import { purchase, statementImport, statementLine } from '$lib/db/schema';
-import { dedupKey, parseCsv, type CsvColumnMap } from '$lib/domain/reconcile/parse-csv';
-import { matchLines } from '$lib/domain/reconcile/match';
+import {
+	dedupKey,
+	parseCsv,
+	type CsvColumnMap,
+	type RawStatementLine
+} from '$lib/domain/reconcile/parse-csv';
+import { matchLines, type MatchProposal } from '$lib/domain/reconcile/match';
 import { Money } from '$lib/domain/money/money';
 import { submitPurchase } from '$lib/application/purchases';
 import {
@@ -54,7 +59,7 @@ interface Deps {
 	ids: IdGenerator;
 }
 
-interface Scope {
+export interface Scope {
 	workspaceId: string;
 	/** The acting member's workspace_member id — also the seal-filter viewer. */
 	memberId: string;
@@ -78,6 +83,77 @@ export interface ImportResult {
 	matchedCount: number;
 	/** Parse failures, by CSV line number. Reported, never silently dropped. */
 	errors: { line: number; message: string }[];
+}
+
+/**
+ * Propose a match for each line against what the importer may see, then mark
+ * the lines that only a concealed purchase explains as `private`.
+ *
+ * Shared by file imports and bank sync: wherever lines come from, the same
+ * evidence rules and the same seal rules decide what they are matched to.
+ */
+export async function proposeMatches(
+	db: Db,
+	scope: Scope,
+	lines: RawStatementLine[],
+	accountId: string | null,
+	now: Date
+): Promise<{ proposals: MatchProposal[]; privateLines: Set<number> }> {
+	if (lines.length === 0) return { proposals: [], privateLines: new Set() };
+	const times = lines.map((l) => l.postedAt.getTime());
+
+	// Widen the candidate window by the tolerance at both ends: a purchase made
+	// two days before the statement's first line can still be the line that
+	// opens it.
+	const from = new Date(Math.min(...times) - TOLERANCE_DAYS * DAY_MS);
+	const to = new Date(Math.max(...times) + TOLERANCE_DAYS * DAY_MS);
+
+	const viewerScope = { workspaceId: scope.workspaceId, viewerId: scope.memberId };
+	const [candidates, sealedKeys] = await Promise.all([
+		matchCandidates(db, viewerScope, from, to, now),
+		sealedCandidateKeys(db, viewerScope, from, to, now)
+	]);
+
+	const proposals = matchLines(lines, candidates, {
+		toleranceDays: TOLERANCE_DAYS,
+		accountId
+	});
+
+	/*
+	 * Seal-aware second pass.
+	 *
+	 * Matching above ran only over purchases the importer can see, which is the
+	 * right default — but it leaves a line for a concealed purchase looking
+	 * unexplained, and the natural response to an unexplained line is to log it,
+	 * creating a duplicate of a purchase you're not allowed to know about. The
+	 * schema anticipates this with a `private` state: "accounted for, not shown".
+	 *
+	 * What this reveals is bounded: that *some* hidden purchase exists at an
+	 * amount and date the importer is already reading off their own bank
+	 * statement. It reveals no item, no merchant, no member, and the line carries
+	 * no purchase id, so nothing can be followed. That is a smaller disclosure
+	 * than the alternative, where the importer reconstructs the same fact by
+	 * noticing a line they cannot account for.
+	 */
+	const sealedRemaining = sealedKeys.map((k) => ({ ...k, used: false }));
+	const privateLines = new Set<number>();
+	for (const p of proposals) {
+		if (p.state === 'matched') continue;
+		const line = lines[p.lineIndex];
+		const abs = (n: bigint) => (n < 0n ? -n : n);
+		const hit = sealedRemaining.find(
+			(k) =>
+				!k.used &&
+				abs(k.amountMinor) === abs(line.amountMinor) &&
+				Math.abs(k.completedAt.getTime() - line.postedAt.getTime()) <= TOLERANCE_DAYS * DAY_MS
+		);
+		if (hit) {
+			hit.used = true;
+			privateLines.add(p.lineIndex);
+		}
+	}
+
+	return { proposals, privateLines };
 }
 
 /**
@@ -140,56 +216,13 @@ export async function importStatement(
 	const periodStart = new Date(Math.min(...times));
 	const periodEnd = new Date(Math.max(...times));
 
-	// Widen the candidate window by the tolerance at both ends: a purchase made
-	// two days before the statement's first line can still be the line that
-	// opens it.
-	const from = new Date(periodStart.getTime() - TOLERANCE_DAYS * DAY_MS);
-	const to = new Date(periodEnd.getTime() + TOLERANCE_DAYS * DAY_MS);
-
-	const viewerScope = { workspaceId: scope.workspaceId, viewerId: scope.memberId };
-	const [candidates, sealedKeys] = await Promise.all([
-		matchCandidates(db, viewerScope, from, to, now),
-		sealedCandidateKeys(db, viewerScope, from, to, now)
-	]);
-
-	const proposals = matchLines(lines, candidates, {
-		toleranceDays: TOLERANCE_DAYS,
-		accountId: input.accountId ?? null
-	});
-
-	/*
-	 * Seal-aware second pass.
-	 *
-	 * Matching above ran only over purchases the importer can see, which is the
-	 * right default — but it leaves a line for a concealed purchase looking
-	 * unexplained, and the natural response to an unexplained line is to log it,
-	 * creating a duplicate of a purchase you're not allowed to know about. The
-	 * schema anticipates this with a `private` state: "accounted for, not shown".
-	 *
-	 * What this reveals is bounded: that *some* hidden purchase exists at an
-	 * amount and date the importer is already reading off their own bank
-	 * statement. It reveals no item, no merchant, no member, and the line carries
-	 * no purchase id, so nothing can be followed. That is a smaller disclosure
-	 * than the alternative, where the importer reconstructs the same fact by
-	 * noticing a line they cannot account for.
-	 */
-	const sealedRemaining = sealedKeys.map((k) => ({ ...k, used: false }));
-	const privateLines = new Set<number>();
-	for (const p of proposals) {
-		if (p.state === 'matched') continue;
-		const line = lines[p.lineIndex];
-		const abs = (n: bigint) => (n < 0n ? -n : n);
-		const hit = sealedRemaining.find(
-			(k) =>
-				!k.used &&
-				abs(k.amountMinor) === abs(line.amountMinor) &&
-				Math.abs(k.completedAt.getTime() - line.postedAt.getTime()) <= TOLERANCE_DAYS * DAY_MS
-		);
-		if (hit) {
-			hit.used = true;
-			privateLines.add(p.lineIndex);
-		}
-	}
+	const { proposals, privateLines } = await proposeMatches(
+		db,
+		scope,
+		lines,
+		input.accountId ?? null,
+		now
+	);
 
 	const importId = deps.ids.newId();
 	const matchedCount = proposals.filter((p) => p.state === 'matched').length;

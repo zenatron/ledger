@@ -543,7 +543,15 @@
 				>
 					<div class="min-w-0 flex-1">
 						<p class="flex items-center gap-1.5 text-[16px] font-medium" style="color: var(--ink)">
-							<span class="truncate">{period ?? imp.filename}</span>
+							<!-- A synced month is named for its card; its dates move as lines post. -->
+							<span class="truncate">{imp.synced ? imp.filename : (period ?? imp.filename)}</span>
+							{#if imp.synced}
+								<span
+									class="chip shrink-0"
+									style="color: var(--ws-accent); background: color-mix(in oklab, var(--ws-accent) 14%, transparent)"
+									>Synced</span
+								>
+							{/if}
 							{#if imp.modelRead}
 								<!-- Marked in the list too: you should know before you open it. -->
 								<Sparkles
@@ -562,9 +570,9 @@
 						</p>
 						<p class="mt-0.5 truncate text-[13px]" style="color: var(--ink-3)">
 							{imp.lineCount}
-							{imp.lineCount === 1 ? 'line' : 'lines'} · {imp.importedByName} · {fmtDateLong(
-								imp.createdAt
-							)}
+							{imp.lineCount === 1 ? 'line' : 'lines'} · {imp.synced
+								? 'from bank sync'
+								: `${imp.importedByName} · ${fmtDateLong(imp.createdAt)}`}
 						</p>
 					</div>
 					<!--

@@ -22,6 +22,7 @@ import {
 } from '$lib/db/schema';
 import { visibleTo } from './purchases';
 import type { MatchCandidate } from '$lib/domain/reconcile/match';
+import type { ApprovedCandidate } from '$lib/domain/reconcile/match-approved';
 
 export type StatementImportRow = typeof statementImport.$inferSelect;
 export type StatementLineRow = typeof statementLine.$inferSelect;
@@ -47,6 +48,8 @@ export interface ImportListItem {
 	modelRead: boolean;
 	/** Every line answered and the import closed — review work, finished. */
 	closed: boolean;
+	/** Written by bank sync rather than uploaded; it grows as transactions post. */
+	synced: boolean;
 }
 
 /** Newest first — you reconcile the statement you just pulled down. */
@@ -79,7 +82,8 @@ export async function listImports(db: Db, workspaceId: string): Promise<ImportLi
 		currency: r.imp.currency,
 		importedByName: r.importedByName,
 		modelRead: r.imp.modelRead,
-		closed: r.imp.status === 'reconciled'
+		closed: r.imp.status === 'reconciled',
+		synced: r.imp.format === 'feed'
 	}));
 }
 
@@ -300,6 +304,50 @@ export async function matchCandidates(
 		id: r.id,
 		amountMinor: r.final ?? r.requested,
 		completedAt: r.completedAt!,
+		itemName: r.itemName,
+		merchantName: r.merchantName,
+		accountId: r.accountId
+	}));
+}
+
+/**
+ * Approved requests not yet bought: what a synced charge might be the payment
+ * for. Seal-filtered like `matchCandidates`. Carries the requester, because
+ * only they may complete a purchase and the sync completes it as them.
+ */
+export async function approvedCandidates(
+	db: Db,
+	scope: Scope,
+	now: Date
+): Promise<(ApprovedCandidate & { memberId: string })[]> {
+	const rows = await db
+		.select({
+			id: purchase.id,
+			memberId: purchase.memberId,
+			approved: purchase.approvedAmountMinor,
+			requested: purchase.requestedAmountMinor,
+			decidedAt: purchase.decidedAt,
+			createdAt: purchase.createdAt,
+			itemName: purchase.itemName,
+			merchantName: merchant.name,
+			accountId: purchase.accountId
+		})
+		.from(purchase)
+		.leftJoin(merchant, eq(purchase.merchantId, merchant.id))
+		.where(
+			and(
+				eq(purchase.workspaceId, scope.workspaceId),
+				visibleTo(scope.viewerId, now),
+				eq(purchase.state, 'approved'),
+				sql`${purchase.clearedAt} is null`
+			)
+		);
+
+	return rows.map((r) => ({
+		id: r.id,
+		memberId: r.memberId,
+		approvedAmountMinor: r.approved ?? r.requested,
+		approvedAt: r.decidedAt ?? r.createdAt,
 		itemName: r.itemName,
 		merchantName: r.merchantName,
 		accountId: r.accountId

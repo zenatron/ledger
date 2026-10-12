@@ -375,7 +375,7 @@ function monthNum(name: string): number | null {
 // Description normalisation
 // ---------------------------------------------------------------------------
 
-function normaliseDescription(raw: string): string {
+export function normaliseDescription(raw: string): string {
 	return raw.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 

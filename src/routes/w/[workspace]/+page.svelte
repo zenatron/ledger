@@ -8,6 +8,7 @@
 		CircleHelp,
 		Download,
 		FileCheck,
+		Landmark,
 		Palette,
 		Settings,
 		Shapes,
@@ -256,6 +257,13 @@
 					FileCheck,
 					'Reconcile',
 					'Tick a bank statement against this ledger',
+					true
+				)}
+				{@render navRow(
+					'bank',
+					Landmark,
+					'Bank sync',
+					'Pull transactions in through SimpleFIN',
 					true
 				)}
 				{@render navRow('api', Webhook, 'API & MCP', 'Connect Claude or another assistant', true)}

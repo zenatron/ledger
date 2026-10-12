@@ -36,6 +36,7 @@ services:
       NTFY_SERVER_URL: ${NTFY_SERVER_URL:-}
       NTFY_DEFAULT_TOKEN: ${NTFY_DEFAULT_TOKEN:-}
       SECRETS_KEY: ${SECRETS_KEY:-}
+      SIMPLEFIN_HOSTS: ${SIMPLEFIN_HOSTS:-beta-bridge.simplefin.org,bridge.simplefin.org}
       # --- Places & barcode lookup (all optional) ---
       # Without these the app still records pins from links and the device; the
       # map draws its graticule fallback and address search stays off. The tile
