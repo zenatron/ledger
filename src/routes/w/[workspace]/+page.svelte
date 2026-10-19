@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/Badge.svelte';
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
 	import {
@@ -92,11 +93,7 @@
 			<span class="flex items-center gap-2 text-[15px] font-medium" style="color: var(--ink)">
 				{title}
 				{#if alpha}
-					<span
-						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-						>Alpha</span
-					>
+					<Badge>Alpha</Badge>
 				{/if}
 			</span>
 			<span class="block text-[13px]" style="color: var(--ink-3)">{subtitle}</span>

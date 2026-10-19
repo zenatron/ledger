@@ -119,3 +119,51 @@ describe('pending_share staging', () => {
 		).not.toBeNull();
 	});
 });
+
+describe('sweeping staged share photos', () => {
+	function memoryStore(ids: string[]) {
+		const held = new Set(ids);
+		return {
+			held,
+			store: {
+				put: async () => ({ id: '', byteSize: 0 }),
+				get: async () => null,
+				exists: async (id: string) => held.has(id),
+				delete: async (id: string) => void held.delete(id)
+			}
+		};
+	}
+
+	it('deletes an expired original nothing else names, and keeps one still in use', async () => {
+		h = await makeTestDb();
+		const ws = await seedWorkspace(h.db);
+		const lone = 'ab'.repeat(32) + '.jpg';
+		const twice = 'cd'.repeat(32) + '.jpg';
+		const { held, store } = memoryStore([lone, twice]);
+
+		current = new Date(base.getTime() - SHARE_TTL_MS - 60_000);
+		for (const blobId of [lone, twice]) {
+			await createShare(h.db, deps, {
+				workspaceId: ws.workspaceId,
+				memberId: ws.ownerMemberId,
+				blobId,
+				filename: 'old.jpg',
+				contentType: 'image/jpeg',
+				byteSize: 1
+			});
+		}
+		// The same photo shared again, still inside its hour.
+		current = base;
+		await createShare(h.db, deps, {
+			workspaceId: ws.workspaceId,
+			memberId: ws.ownerMemberId,
+			blobId: twice,
+			filename: 'again.jpg',
+			contentType: 'image/jpeg',
+			byteSize: 1
+		});
+
+		expect(await sweepExpiredShares(h.db, current, store)).toBe(2);
+		expect([...held]).toEqual([twice]);
+	});
+});

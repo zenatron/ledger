@@ -3,6 +3,7 @@ import type { ActionEvent, LoadEvent } from '$lib/ports/handlers';
 import { error, fail } from '@sveltejs/kit';
 import { and, asc, eq, gt, isNull, or } from 'drizzle-orm';
 import * as v from 'valibot';
+import { UNCOLORED } from '$lib/accent';
 import { budget, category } from '$lib/db/schema';
 import { Money, InvalidMoneyError } from '$lib/domain/money/money';
 import { yearPeriod } from '$lib/domain/analytics/period';
@@ -201,10 +202,10 @@ export async function load(ctx: WorkspaceContext, { url, params }: LoadEvent) {
 			if (barCats.size > 0) {
 				allCategories.forEach((c) => {
 					const v = barCats.get(`${b.key}:${c.id}`) ?? 0n;
-					if (v > 0n) segs.push({ value: v, color: c.color ?? '#8E8E93' });
+					if (v > 0n) segs.push({ value: v, color: c.color ?? UNCOLORED });
 				});
 				const uncat = barCats.get(`${b.key}:__none__`) ?? 0n;
-				if (uncat > 0n) segs.push({ value: uncat, color: '#8E8E93' });
+				if (uncat > 0n) segs.push({ value: uncat, color: UNCOLORED });
 			}
 			return { ...b, totalMinor: trend.get(b.key) ?? 0n, href, segments: segs };
 		}),

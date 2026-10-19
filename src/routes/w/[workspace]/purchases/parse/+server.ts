@@ -7,6 +7,7 @@ import { calDateInZone } from '$lib/domain/time/zoned';
 import { addDays } from '$lib/domain/recurrence/rrule';
 import { systemClock } from '$lib/infra/time/system-clock';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * Turn a spoken/typed sentence into purchase fields for the Add form. Money and
@@ -14,6 +15,7 @@ import type { RequestHandler } from './$types';
  * category. Nothing is submitted — the client fills the form, the person confirms.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
+	assertSameOrigin(request);
 	const ws = locals.workspace!;
 	const body = await request.json().catch(() => ({}));
 	const text = typeof body?.text === 'string' ? body.text.slice(0, 300) : '';

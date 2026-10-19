@@ -53,7 +53,8 @@ import {
 	archiveBucket,
 	addTransaction,
 	bucketBalance,
-	loadOwnBucket
+	loadOwnBucket,
+	BucketStateError
 } from '$lib/repo/buckets';
 import { addIncome, listIncome, updateIncome, deleteIncome } from '$lib/repo/income';
 import { setBudget, schedulableBudgetMonths, schedulableBudgetWeeks } from '$lib/repo/budgets';
@@ -82,7 +83,7 @@ import { memberIncomeBreakdown } from '$lib/repo/income';
 import { settleUp } from '$lib/domain/household/settlement';
 import { accountLabel, listAccounts } from '$lib/repo/accounts';
 import { listBuckets } from '$lib/repo/buckets';
-import { refuseBucketCharge } from '$lib/domain/bucket/scope';
+import { refuseAllowanceChange, refuseBucketCharge } from '$lib/domain/bucket/scope';
 import type { ApprovalPolicy } from '$lib/domain/approval/policy';
 import { safeToSpend, forecastMonths } from '$lib/repo/forecast';
 import { narrateSafeToSpend } from '$lib/domain/forecast/safe-to-spend';
@@ -247,8 +248,6 @@ function buildSeal(
 function domainErrText(e: unknown): string {
 	const mapped = toToolError(e);
 	if (mapped) return mapped;
-	// Bucket repo mutations throw plain Error with safe, user-facing copy.
-	if (e instanceof Error) return e.message;
 	throw e;
 }
 
@@ -1825,6 +1824,13 @@ export const TOOLS: McpTool[] = [
 					const g = str(args, 'goal');
 					changes.goalCapMinor = !g || g.toLowerCase() === 'none' ? null : money(ctx, g).minor;
 				}
+				const own = await loadOwnBucket(ctx.db, scopeOf(ctx), id);
+				if (!own) return { text: `No bucket ${id} that you own.`, isError: true };
+				const refusal = refuseAllowanceChange(own, {
+					amountMinor: changes.amountMinor,
+					reschedules: changes.rrule !== undefined
+				});
+				if (refusal) return { text: refusal, isError: true };
 				const b = await updateBucket(ctx.db, scopeOf(ctx), id, changes);
 				if (!b) return { text: `No bucket ${id} that you own.`, isError: true };
 				return { text: `Updated bucket "${b.name}".`, data: { bucket_id: id } };
@@ -1860,6 +1866,10 @@ export const TOOLS: McpTool[] = [
 			try {
 				const m = Money.fromDecimal(required(args, 'amount'), b.currency);
 				const withdraw = dir === 'withdraw';
+				const refusal = refuseAllowanceChange(b, {
+					depositMinor: withdraw ? -m.minor : m.minor
+				});
+				if (refusal) return { text: refusal, isError: true };
 				await addTransaction(ctx.db, ctx.deps, {
 					bucketId: id,
 					amountMinor: withdraw ? -m.minor : m.minor,
@@ -2059,7 +2069,8 @@ export function toToolError(e: unknown): string | null {
 		e instanceof ApprovalRoutingError ||
 		e instanceof SealError ||
 		e instanceof RecurringRuleError ||
-		e instanceof RecurrenceError
+		e instanceof RecurrenceError ||
+		e instanceof BucketStateError
 	) {
 		return e.message;
 	}

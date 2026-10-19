@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { and, count, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import * as v from 'valibot';
+import { UNCOLORED } from '$lib/accent';
 import { purchase, recurringRule } from '$lib/db/schema';
 import { Money, InvalidMoneyError } from '$lib/domain/money/money';
 import {
@@ -280,7 +281,7 @@ export async function load(ctx: WorkspaceContext, { params }: { params: { worksp
 }
 
 /** The neutral grey every chart here gives the uncategorized remainder. */
-const OTHER_COLOR = '#8E8E93';
+const OTHER_COLOR = UNCOLORED;
 
 /**
  * Merge costs filed under a category the page can no longer name (archived)

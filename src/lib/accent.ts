@@ -72,3 +72,11 @@ export function accentFor(ws: { slug: string; accentColor?: string | null }): st
 	const hash = ws.slug.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
 	return ACCENTS[hash % ACCENTS.length];
 }
+
+/**
+ * The colour for spending with no category colour of its own — uncategorised,
+ * or a category nobody coloured. It was the iOS system grey, #8E8E93, left over
+ * from the look this app moved away from: off the paper palette and the same in
+ * both themes. --ink-4 is the palette's own quiet tone and turns with the theme.
+ */
+export const UNCOLORED = 'var(--ink-4)';

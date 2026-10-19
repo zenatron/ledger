@@ -750,7 +750,7 @@
 				<Money minor={p.amountMinor} currency={p.currency} class="text-[16px] font-semibold" />
 				{#if p.state !== 'completed' && stateLabel[p.state]}
 					<span
-						class="text-[10px] font-semibold tracking-[0.04em] uppercase"
+						class="text-[11px] font-semibold tracking-[0.04em] uppercase"
 						style="color: var({stateVar[p.state]})">{stateLabel[p.state]}</span
 					>
 				{/if}

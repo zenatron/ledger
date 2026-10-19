@@ -3,6 +3,7 @@
 	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { money } from '$lib/actions/money';
+	import { UNCOLORED } from '$lib/accent';
 	import { formatMinor, splitCurrencyMinor, tooWideForSymbol } from '$lib/money-format';
 	import { formatPct } from '$lib/format';
 	import Money from '$lib/components/Money.svelte';
@@ -180,7 +181,7 @@
 			)
 			.map((c: { color: string | null; totalMinor: bigint }) => ({
 				value: c.totalMinor,
-				color: c.color ?? '#8E8E93'
+				color: c.color ?? UNCOLORED
 			}))
 	);
 	const maxBar = $derived(
@@ -548,7 +549,9 @@
 							},
 							[]
 						)}
-						{#each stacked as seg (seg.color)}
+						<!-- By position: two segments can share a colour (an uncoloured category
+						     beside uncategorised spending), and keys must be unique. -->
+						{#each stacked as seg, si (si)}
 							{#if b.href}
 								<a
 									href={b.href}
@@ -627,7 +630,7 @@
 				<div class="mt-1.5 flex justify-between" style="padding-left: 1px; padding-right: 0">
 					{#each data.buckets as b (b.key)}
 						{#if b.weekLabel}
-							<span class="text-[9px] font-medium" style="color: var(--ink-3)">{b.weekLabel}</span>
+							<span class="text-[11px] font-medium" style="color: var(--ink-3)">{b.weekLabel}</span>
 						{/if}
 					{/each}
 				</div>
@@ -635,7 +638,7 @@
 				<div class="mt-1 flex" style="gap: {barGap}px; padding-left: 1px">
 					{#each data.buckets as b (b.key)}
 						<span
-							class="block text-center text-[9px] font-medium"
+							class="block text-center text-[11px] font-medium"
 							style="width: {barWidth}px; color: {b.today ? 'var(--ink)' : 'var(--ink-3)'}"
 							>{b.label}</span
 						>
@@ -944,7 +947,7 @@
 							<span style="color: var(--ink)">
 								<span
 									class="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle"
-									style="background: {c.color ?? '#8E8E93'}"
+									style="background: {c.color ?? UNCOLORED}"
 								></span>{c.name}
 							</span>
 							<span class="flex items-baseline gap-1.5">
@@ -962,7 +965,7 @@
 							<div
 								class="h-full rounded-full"
 								style="width: {pctOf(c.totalMinor, maxCategory)}%; background: {c.color ??
-									'#8E8E93'}; transition: width 800ms var(--ease-out)"
+									UNCOLORED}; transition: width 800ms var(--ease-out)"
 							></div>
 						</div>
 					</a>

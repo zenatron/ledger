@@ -7,7 +7,7 @@ import { setBudget, schedulableBudgetWeeks } from '$lib/repo/budgets';
 import { listCategories } from '$lib/repo/workspaces';
 import { Money, InvalidMoneyError } from '$lib/domain/money/money';
 import { firstAccrualAt, monthlyAccrualRule } from '$lib/application/buckets';
-import { formatRRule } from '$lib/domain/recurrence/rrule';
+import { daysInMonth, formatRRule } from '$lib/domain/recurrence/rrule';
 import { calDateInZone, zonedTimeToUtc } from '$lib/domain/time/zoned';
 import { systemClock } from '$lib/infra/time/system-clock';
 import { uuidv7 } from '$lib/infra/id/uuidv7';
@@ -189,11 +189,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 				return json({ intent: 'create_income', answer: 'Income needs a source.' });
 			}
 			const day = normalizeDay(proposal.dayOfMonth);
+			// The rule keeps the day as said — the 31st, or -1 for the last day —
+			// and clamps it to each month as it goes. Only this month's date is
+			// resolved here: -1 used to land as "day -1", two days before the month
+			// began, and the 29th–31st were quietly moved to the 28th.
+			const last = daysInMonth(today.y, today.m);
 			const start = proposal.monthly
-				? { y: today.y, m: today.m, d: Math.min(day, 28) }
+				? { y: today.y, m: today.m, d: day === -1 ? last : Math.min(day, last) }
 				: { y: today.y, m: today.m, d: today.d };
 			const rrule = proposal.monthly
-				? formatRRule({ start, freq: 'monthly', interval: 1, byMonthDay: start.d })
+				? formatRRule({ start, freq: 'monthly', interval: 1, byMonthDay: day })
 				: null;
 			await addIncome(getDb(), deps, {
 				workspaceId: ws.id,
@@ -208,7 +213,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			return json({
 				intent: 'create_income',
 				answer: proposal.monthly
-					? `Income “${source}” added: ${amount.format()} monthly on day ${start.d}.`
+					? `Income “${source}” added: ${amount.format()} monthly on ${day === -1 ? 'the last day' : `day ${day}`}.`
 					: `Income “${source}” added: ${amount.format()}.`,
 				target: 'income'
 			});

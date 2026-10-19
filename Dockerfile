@@ -21,6 +21,10 @@ RUN rm -rf node_modules && bun install --frozen-lockfile --production --omit=pee
 FROM oven/bun:1.3
 WORKDIR /app
 ENV NODE_ENV=production
+# adapter-node's request body cap defaults to 512K, which refuses an ordinary
+# phone photo. Set here, not only in compose.yaml, so a plain `docker run` can
+# upload receipts too; image uploads are validated to 15M in-app.
+ENV BODY_SIZE_LIMIT=20M
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json

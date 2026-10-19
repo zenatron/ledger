@@ -14,6 +14,18 @@ import { zonedTimeToUtc } from '$lib/domain/time/zoned';
 import type { Clock } from '$lib/ports/clock';
 import type { IdGenerator } from '$lib/ports/id-generator';
 import { visibleTo } from './purchases';
+import { isUuid } from '$lib/uuid';
+
+/**
+ * A bucket change refused for a reason the person can act on. Its message is
+ * user-facing copy; anything else thrown from here is a fault, not an answer.
+ */
+export class BucketStateError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'BucketStateError';
+	}
+}
 
 /**
  * Whose eyes a bucket figure is for. Every movement tied to a purchase carries
@@ -149,6 +161,8 @@ export async function loadBucket(
 	workspaceId: string,
 	bucketId: string
 ): Promise<BucketRow | null> {
+	// A malformed id names no bucket; asking Postgres would only make it an error.
+	if (!isUuid(bucketId)) return null;
 	const rows = await db
 		.select()
 		.from(bucket)
@@ -235,8 +249,8 @@ export async function pauseBucket(
 	bucketId: string
 ) {
 	const b = await loadOwnBucket(db, scope, bucketId);
-	if (!b) throw new Error('Bucket not found');
-	if (b.status !== 'active') throw new Error('Only active buckets can be paused');
+	if (!b) throw new BucketStateError('Bucket not found');
+	if (b.status !== 'active') throw new BucketStateError('Only active buckets can be paused');
 	await db.update(bucket).set({ status: 'paused' }).where(eq(bucket.id, bucketId));
 }
 
@@ -251,8 +265,8 @@ export async function resumeBucket(
 	nextAccrualAt: Date
 ) {
 	const b = await loadOwnBucket(db, scope, bucketId);
-	if (!b) throw new Error('Bucket not found');
-	if (b.status !== 'paused') throw new Error('Only paused buckets can be resumed');
+	if (!b) throw new BucketStateError('Bucket not found');
+	if (b.status !== 'paused') throw new BucketStateError('Only paused buckets can be resumed');
 	await db.update(bucket).set({ status: 'active', nextAccrualAt }).where(eq(bucket.id, bucketId));
 }
 
@@ -262,8 +276,8 @@ export async function archiveBucket(
 	bucketId: string
 ) {
 	const b = await loadOwnBucket(db, scope, bucketId);
-	if (!b) throw new Error('Bucket not found');
-	if (b.status === 'archived') throw new Error('Bucket is already archived');
+	if (!b) throw new BucketStateError('Bucket not found');
+	if (b.status === 'archived') throw new BucketStateError('Bucket is already archived');
 	await db.update(bucket).set({ status: 'archived' }).where(eq(bucket.id, bucketId));
 }
 

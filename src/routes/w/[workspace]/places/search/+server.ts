@@ -4,6 +4,7 @@ import { getGeocoder } from '$lib/infra/geocode';
 import { getEnv } from '$lib/server/env';
 import { rateLimitOk } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * Resolve a typed address to candidate places.
@@ -21,6 +22,7 @@ import type { RequestHandler } from './$types';
  * precision it isn't allowed to store.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
+	assertSameOrigin(request);
 	const empty = json({ places: [] });
 
 	if (!locals.workspace!.locationEnabled) return empty;

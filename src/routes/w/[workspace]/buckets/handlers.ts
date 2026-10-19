@@ -31,8 +31,11 @@ import {
 	pauseBucket,
 	resumeBucket,
 	archiveBucket,
-	addTransaction
+	addTransaction,
+	BucketStateError
 } from '$lib/repo/buckets';
+import { refuseAllowanceChange } from '$lib/domain/bucket/scope';
+import { isUuid } from '$lib/uuid';
 
 export async function load(ctx: WorkspaceContext, { params }: LoadEvent) {
 	// Re-run this workspace-scoped load when the workspace in the URL changes;
@@ -339,12 +342,16 @@ export const actions = {
 		const colorRaw = form.get('color') as string | null;
 
 		if (!name) return fail(400, { error: 'Bucket needs a name' });
-		if (!amountRaw) return fail(400, { error: 'Amount is required' });
+
+		const ws = ctx.workspace;
+		const own = isUuid(bucketId)
+			? await loadOwnBucket(ctx.db, { workspaceId: ws.id, memberId: ctx.member.id }, bucketId)
+			: null;
+		if (!own) return fail(400, { error: 'Bucket not found' });
+		// An allowance's form leaves the amount out: it is an owner's to set.
+		if (!amountRaw && !own.isAllowance) return fail(400, { error: 'Amount is required' });
 
 		try {
-			const ws = ctx.workspace;
-			const amount = Money.fromDecimal(amountRaw, ws.currency);
-			if (!amount.isPositive) return fail(400, { error: 'Amount must be positive' });
 			const changes: {
 				name?: string;
 				amountMinor?: bigint;
@@ -353,12 +360,25 @@ export const actions = {
 				goalCapMinor?: bigint | null;
 				color?: string | null;
 				chargeMemberIds?: string[] | null;
-			} = { name, amountMinor: amount.minor };
+			} = { name };
+			if (amountRaw) {
+				const amount = Money.fromDecimal(amountRaw, ws.currency);
+				if (!amount.isPositive) return fail(400, { error: 'Amount must be positive' });
+				changes.amountMinor = amount.minor;
+			}
 
 			const chargeMemberIds = chargeScopeFromForm(form, ctx.member.id);
 			if (chargeMemberIds !== undefined) changes.chargeMemberIds = chargeMemberIds;
 
-			if (freq && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+			const reschedules = Boolean(freq && /^\d{4}-\d{2}-\d{2}$/.test(startDate));
+			const refusal = refuseAllowanceChange(own, {
+				amountMinor: changes.amountMinor,
+				reschedules,
+				chargeMemberIds: changes.chargeMemberIds
+			});
+			if (refusal) return fail(403, { error: refusal });
+
+			if (reschedules) {
 				const interval = Math.max(1, Math.min(52, parseInt(intervalRaw) || 1));
 				const rrule = formatRRule(
 					recurrenceFromFields({
@@ -397,7 +417,7 @@ export const actions = {
 			if (e instanceof InvalidMoneyError || e instanceof RecurrenceError) {
 				return fail(400, { error: e.message });
 			}
-			if (e instanceof Error) return fail(400, { error: e.message });
+			if (e instanceof BucketStateError) return fail(400, { error: e.message });
 			throw e;
 		}
 		return { ok: true };
@@ -412,7 +432,7 @@ export const actions = {
 				bucketId
 			);
 		} catch (e) {
-			if (e instanceof Error) return fail(400, { error: e.message });
+			if (e instanceof BucketStateError) return fail(400, { error: e.message });
 			throw e;
 		}
 		return { ok: true };
@@ -436,7 +456,7 @@ export const actions = {
 				firstAccrualAt(b.rrule, today, ws.timezone)
 			);
 		} catch (e) {
-			if (e instanceof Error) return fail(400, { error: e.message });
+			if (e instanceof BucketStateError) return fail(400, { error: e.message });
 			throw e;
 		}
 		return { ok: true };
@@ -451,7 +471,7 @@ export const actions = {
 				bucketId
 			);
 		} catch (e) {
-			if (e instanceof Error) return fail(400, { error: e.message });
+			if (e instanceof BucketStateError) return fail(400, { error: e.message });
 			throw e;
 		}
 		return { ok: true };
@@ -481,6 +501,8 @@ export const actions = {
 		try {
 			const money = Money.fromDecimal(amountRaw, b.currency);
 			const amountMinor = type === 'withdrawal' ? -money.minor : money.minor;
+			const refusal = refuseAllowanceChange(b, { depositMinor: amountMinor });
+			if (refusal) return fail(403, { error: refusal });
 
 			await addTransaction(ctx.db, ctx.deps, {
 				bucketId,

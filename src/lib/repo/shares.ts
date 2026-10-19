@@ -1,6 +1,7 @@
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, lt, or } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
-import { pendingShare } from '$lib/db/schema';
+import { pendingShare, purchaseImage, statementImport, user } from '$lib/db/schema';
+import type { BlobStore } from '$lib/ports/blob-store';
 import type { Clock } from '$lib/ports/clock';
 import type { IdGenerator } from '$lib/ports/id-generator';
 
@@ -65,11 +66,49 @@ export async function loadShare(
 	};
 }
 
-/** Swept from the 5-minute sweep; returns the count for the log line. */
-export async function sweepExpiredShares(db: Db, now: Date): Promise<number> {
+/**
+ * Swept from the 5-minute sweep; returns the count for the log line.
+ *
+ * With a store, the staged originals go too. The blob store is otherwise
+ * append-only on purpose (see delete-workspace), but a staged share is not a
+ * record of anything: it is a full-size original, up to 10 MB, that nothing
+ * durable ever points at — the form re-processes it into a purchase photo of
+ * its own. Left in place, every photo shared to the app stayed on disk for
+ * good. A file is removed only when no row anywhere still names it, since
+ * content addressing means the same bytes could have been shared twice.
+ */
+export async function sweepExpiredShares(db: Db, now: Date, blobs?: BlobStore): Promise<number> {
 	const rows = await db
 		.delete(pendingShare)
 		.where(lt(pendingShare.createdAt, new Date(now.getTime() - SHARE_TTL_MS)))
-		.returning({ id: pendingShare.id });
+		.returning({ id: pendingShare.id, blobId: pendingShare.blobId });
+	if (blobs) {
+		for (const blobId of new Set(rows.map((r) => r.blobId))) {
+			if (!(await blobReferenced(db, blobId))) await blobs.delete(blobId);
+		}
+	}
 	return rows.length;
+}
+
+/** Does any row still name this blob? Every blob-id column in the schema. */
+async function blobReferenced(db: Db, blobId: string): Promise<boolean> {
+	const hits = await Promise.all([
+		db
+			.select({ id: pendingShare.id })
+			.from(pendingShare)
+			.where(eq(pendingShare.blobId, blobId))
+			.limit(1),
+		db
+			.select({ id: purchaseImage.id })
+			.from(purchaseImage)
+			.where(or(eq(purchaseImage.blobId, blobId), eq(purchaseImage.thumbBlobId, blobId)))
+			.limit(1),
+		db.select({ id: user.id }).from(user).where(eq(user.avatarBlobId, blobId)).limit(1),
+		db
+			.select({ id: statementImport.id })
+			.from(statementImport)
+			.where(eq(statementImport.blobId, blobId))
+			.limit(1)
+	]);
+	return hits.some((r) => r.length > 0);
 }

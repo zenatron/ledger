@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/Badge.svelte';
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
 	import { toastError } from '$lib/toast-state.svelte';
@@ -476,11 +477,7 @@
 			<span class="min-w-0 flex-1">
 				<span class="flex flex-wrap items-center gap-x-2 gap-y-1">
 					<span class="text-[15px] font-medium" style="color: var(--ink)">Scan a barcode</span>
-					<span
-						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-						>Alpha</span
-					>
+					<Badge>Alpha</Badge>
 				</span>
 				<span class="mt-0.5 block text-[13px]" style="color: var(--ink-3)"
 					>Reads the number. You still enter the price.</span

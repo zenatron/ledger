@@ -799,7 +799,7 @@
 					<span
 						style="display:block; width: {scaleBar.px}px; height: 5px; border: 1px solid var(--ink-3); border-top: none"
 					></span>
-					<span class="num text-[10px]" style="color: var(--ink-3)">{scaleBar.text}</span>
+					<span class="num text-[11px]" style="color: var(--ink-3)">{scaleBar.text}</span>
 				</div>
 			{/if}
 
@@ -817,7 +817,7 @@
 				<!-- ODbL requires visible credit, so this is a permanent caption
 				     rather than something behind a tap. -->
 				<span
-					class="pointer-events-none absolute rounded-[var(--r-sm)] px-1.5 py-0.5 text-[10px]"
+					class="pointer-events-none absolute rounded-[var(--r-sm)] px-1.5 py-0.5 text-[11px]"
 					style="right: 6px; bottom: 6px; color: var(--ink-3); background: color-mix(in oklab, var(--paper) 78%, transparent)"
 				>
 					{data.tileAttribution}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/Badge.svelte';
 	import { untrack } from 'svelte';
 	import { submit } from '$lib/actions/submit';
 	import { page } from '$app/state';
@@ -27,6 +28,15 @@
 	const initial = untrack(() => data.config);
 	let mode = $state<'off' | 'local' | 'external'>(initial.mode);
 	let endpoint = $state(initial.endpoint);
+	/** The server keeps a stored key only for the endpoint it was entered for. */
+	const keyKept = $derived.by(() => {
+		if (!data.config.apiKeySet) return false;
+		try {
+			return new URL(endpoint).origin === new URL(data.config.endpoint).origin;
+		} catch {
+			return false;
+		}
+	});
 	let model = $state(initial.model);
 	let apiKey = $state('');
 
@@ -122,11 +132,7 @@
 		<p class="flex items-center gap-1.5 text-[15px] font-medium" style="color: var(--ink)">
 			<Sparkles class="h-4 w-4 shrink-0" style="color: var(--ws-accent)" />
 			Harmony Intelligence
-			<span
-				class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-				style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-				>Alpha</span
-			>
+			<Badge>Alpha</Badge>
 		</p>
 		<p class="mt-0.5 text-[13px] leading-relaxed" style="color: var(--ink-3)">
 			Works out what's safe to spend this month and answers questions about your money in plain
@@ -526,14 +532,7 @@
 										{#if m.capabilities && m.capabilities.length > 0}
 											<span class="mt-1.5 flex flex-wrap gap-1">
 												{#each m.capabilities as cap (cap)}
-													<span
-														class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.04em]"
-														style="background: color-mix(in oklab, {capTone(
-															cap
-														)} 14%, var(--surface)); color: {capTone(cap)}"
-													>
-														{cap}
-													</span>
+													<Badge tone={capTone(cap)} caps={false}>{cap}</Badge>
 												{/each}
 											</span>
 										{/if}
@@ -561,9 +560,15 @@
 							type="password"
 							bind:value={apiKey}
 							disabled={!owner}
-							placeholder={data.config.apiKeySet ? 'Stored. Leave blank to keep it.' : 'sk-...'}
+							placeholder={keyKept ? 'Stored. Leave blank to keep it.' : 'sk-...'}
 							class="field mt-1 font-mono text-[16px]"
 						/>
+						{#if data.config.apiKeySet && !keyKept}
+							<p class="mt-1 text-[13px]" style="color: var(--ink-3)">
+								The stored key stays with the server it was entered for. Enter it again to use it
+								here.
+							</p>
+						{/if}
 					</div>
 					<p class="text-[12.5px] leading-relaxed" style="color: var(--ink-3)">
 						No capability chips here: an OpenAI-compatible endpoint lists model names and nothing

@@ -85,3 +85,52 @@ export function describeChargeScope(
 		? `${nameOf(all[0])} and ${nameOf(all[1])}`
 		: `${all.length} people can charge this`;
 }
+
+/**
+ * What the holder of an allowance may not change about it themselves.
+ *
+ * The pot belongs to the member it is for, so every "your own bucket" path
+ * reached it. But its amount, its schedule and who can spend it are the terms
+ * an owner set, and the allowance policy lets through, unasked, anything the
+ * pot can cover. A holder who could raise the amount, or add money that was
+ * never set aside, could write their own cap. Those changes go through an
+ * owner's "Change allowance"; naming it, colouring it, setting a goal and
+ * taking money out stay the holder's.
+ */
+export interface AllowanceChange {
+	amountMinor?: bigint;
+	/** A new accrual rule was asked for. */
+	reschedules?: boolean;
+	/** A new charge scope was asked for. */
+	chargeMemberIds?: string[] | null;
+	/** Money moved into the pot by hand. */
+	depositMinor?: bigint;
+}
+
+export const ALLOWANCE_TERMS_MESSAGE =
+	'An owner sets the allowance amount, schedule and who can spend it. Ask them to change it.';
+export const ALLOWANCE_DEPOSIT_MESSAGE = 'Only an owner can add money to an allowance.';
+
+/** Null when the change is the holder's to make; otherwise why it isn't. */
+export function refuseAllowanceChange(
+	bkt: { isAllowance: boolean; amountMinor: bigint; chargeMemberIds: string[] | null },
+	change: AllowanceChange
+): string | null {
+	if (!bkt.isAllowance) return null;
+	if (change.depositMinor !== undefined && change.depositMinor > 0n) {
+		return ALLOWANCE_DEPOSIT_MESSAGE;
+	}
+	if (change.amountMinor !== undefined && change.amountMinor !== bkt.amountMinor) {
+		return ALLOWANCE_TERMS_MESSAGE;
+	}
+	if (change.reschedules) return ALLOWANCE_TERMS_MESSAGE;
+	if (change.chargeMemberIds !== undefined) {
+		const same =
+			change.chargeMemberIds !== null &&
+			bkt.chargeMemberIds !== null &&
+			change.chargeMemberIds.length === bkt.chargeMemberIds.length &&
+			change.chargeMemberIds.every((id) => bkt.chargeMemberIds!.includes(id));
+		if (!same) return ALLOWANCE_TERMS_MESSAGE;
+	}
+	return null;
+}

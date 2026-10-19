@@ -42,6 +42,7 @@ export async function createToken(
 		tokenHash: hash,
 		prefix,
 		scopes: cmd.scopes,
+		expiresAt: cmd.expiresAt,
 		createdAt: now
 	});
 	return { id, secret, prefix };

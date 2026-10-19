@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/Badge.svelte';
 	/**
 	 * Alpha: read a bill PDF and offer what it found.
 	 *
@@ -353,11 +354,7 @@
 					<span class="text-[15px] font-medium" style="color: var(--ink)">
 						{busy ? 'Reading it…' : 'Read a bill or receipt'}
 					</span>
-					<span
-						class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-						style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-						>Alpha</span
-					>
+					<Badge>Alpha</Badge>
 				</span>
 				<span class="mt-0.5 block text-[13px]" style="color: var(--ink-3)">
 					{busy

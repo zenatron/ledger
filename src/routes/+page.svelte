@@ -14,7 +14,7 @@
 <svelte:head><title>Ledger</title></svelte:head>
 
 <main
-	class="min-h-viewport flex flex-col justify-between gap-8 px-7 py-12"
+	class="accent-scope min-h-viewport flex flex-col justify-between gap-8 px-7 py-12"
 	style="--ws-accent: light-dark(#B4472B, color-mix(in oklch, #B4472B, white 18%)); --accent: var(--ws-accent)"
 >
 	<div class="flex items-center gap-2.5 pt-4">

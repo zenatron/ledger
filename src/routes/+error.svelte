@@ -15,7 +15,7 @@
 <svelte:head><title>{x.t} · Ledger</title></svelte:head>
 
 <div
-	class="min-h-viewport flex items-center justify-center px-6"
+	class="accent-scope min-h-viewport flex items-center justify-center px-6"
 	style="--ws-accent: light-dark(#B4472B, color-mix(in oklch, #B4472B, white 18%)); --accent: var(--ws-accent)"
 >
 	<div class="text-center">

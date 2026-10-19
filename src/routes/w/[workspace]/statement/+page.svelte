@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/Badge.svelte';
 	import { page } from '$app/state';
 	import Money from '$lib/components/Money.svelte';
 	import PeriodStepper from '$lib/components/PeriodStepper.svelte';
@@ -416,10 +417,7 @@
 										<p class="text-[14px] font-medium" style="color: var(--ink)">
 											{tx.itemName}
 											{#if tx.isRefund}
-												<span
-													class="ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-													style="background: var(--surface-2); color: var(--ink-3)">Refund</span
-												>
+												<Badge quiet class="ml-1.5">Refund</Badge>
 											{/if}
 										</p>
 										{#if tx.merchantName}
@@ -472,10 +470,7 @@
 								<p class="min-w-0 text-[14px] font-medium" style="color: var(--ink)">
 									{tx.itemName}
 									{#if tx.isRefund}
-										<span
-											class="ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-											style="background: var(--surface-2); color: var(--ink-3)">Refund</span
-										>
+										<Badge quiet class="ml-1.5">Refund</Badge>
 									{/if}
 								</p>
 								<p class="num shrink-0 text-[14px] font-medium" style="color: var(--ink)">

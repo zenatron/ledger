@@ -468,24 +468,34 @@
 							aria-label="Bucket name"
 							class="field text-[16px]"
 						/>
-						<input
-							name="amount"
-							required
-							use:money
-							inputmode="decimal"
-							value={minorToDecimalInput(b.amountMinor, b.currency)}
-							aria-label="Amount each month"
-							class="field w-28 text-[16px] tabular-nums"
-						/>
+						{#if !b.isAllowance}
+							<input
+								name="amount"
+								required
+								use:money
+								inputmode="decimal"
+								value={minorToDecimalInput(b.amountMinor, b.currency)}
+								aria-label="Amount each month"
+								class="field w-28 text-[16px] tabular-nums"
+							/>
+						{/if}
 					</div>
-					<RecurrencePicker
-						bind:freq={editFreq}
-						bind:interval={editInterval}
-						bind:weekDays={editWeekDays}
-						bind:monthDay={editMonthDay}
-						bind:startDate={editStart}
-						noun="accrual"
-					/>
+					<!-- An allowance's amount and schedule are an owner's to set, so they
+					     are stated here rather than offered. -->
+					{#if b.isAllowance}
+						<p class="text-[13px]" style="color: var(--ink-3)">
+							{cadenceLine(b)}. An owner sets the amount and schedule.
+						</p>
+					{:else}
+						<RecurrencePicker
+							bind:freq={editFreq}
+							bind:interval={editInterval}
+							bind:weekDays={editWeekDays}
+							bind:monthDay={editMonthDay}
+							bind:startDate={editStart}
+							noun="accrual"
+						/>
+					{/if}
 					<input
 						name="goalCap"
 						use:money
@@ -579,10 +589,19 @@
 							aria-label="Amount to move"
 							class="field text-[16px]"
 						/>
-						<select name="type" bind:value={adjustType} class="field text-[16px]">
-							<option value="withdrawal">Take money out</option>
-							<option value="adjustment">Add money</option>
-						</select>
+						<!-- Adding money to an allowance is an owner's to do; its holder
+						     can only take money out. -->
+						{#if b.isAllowance}
+							<input type="hidden" name="type" value="withdrawal" />
+							<span class="self-center text-[14px]" style="color: var(--ink-2)">
+								Take money out
+							</span>
+						{:else}
+							<select name="type" bind:value={adjustType} class="field text-[16px]">
+								<option value="withdrawal">Take money out</option>
+								<option value="adjustment">Add money</option>
+							</select>
+						{/if}
 					</div>
 					<input
 						name="note"

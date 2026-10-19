@@ -1,4 +1,4 @@
-import { building } from '$app/environment';
+import { building, dev } from '$app/environment';
 import {
 	error,
 	redirect,
@@ -44,6 +44,11 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 export const init: ServerInit = async () => {
 	if (building) return;
 	const env = getEnv(); // fail fast on bad configuration
+	// DEV_MODE signs every visitor in as the dev user. It exists for `vite dev`;
+	// in a built server it is an open door, so a copied .env must not boot one.
+	if (env.DEV_MODE && !dev) {
+		throw new Error('DEV_MODE is for `vite dev` only. Unset it to run a production build.');
+	}
 	await runMigrations(env.DATABASE_URL, env.MIGRATIONS_DIR);
 	console.log(JSON.stringify({ level: 'info', msg: 'boot: migrations up to date' }));
 
@@ -121,7 +126,7 @@ export const init: ServerInit = async () => {
 		{
 			name: 'share cleanup',
 			done: 'shares expired',
-			run: () => sweepExpiredShares(getDb(), serverDeps().clock.now())
+			run: () => sweepExpiredShares(getDb(), serverDeps().clock.now(), serverDeps().blobs)
 		},
 		{
 			name: 'session cleanup',
@@ -267,7 +272,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// Dev mode bypass: auto-create user + session when Pocket ID isn't running.
 	const env = getEnv();
-	if (env.DEV_MODE && !event.locals.user) {
+	if (env.DEV_MODE && dev && !event.locals.user) {
 		const devSub = 'dev-user';
 		const now = systemClock.now();
 		const [existing] = await getDb()

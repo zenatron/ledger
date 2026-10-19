@@ -343,7 +343,7 @@
 
 {#key slug}
 	<div
-		class="min-h-viewport flex flex-col"
+		class="accent-scope min-h-viewport flex flex-col"
 		style="--ws-accent-base: {accent}; --ws-accent: light-dark(var(--ws-accent-base), color-mix(in oklch, var(--ws-accent-base), white 18%)); --accent: var(--ws-accent); --header-h: {headerH}px; --nav-h: 5.75rem; --nav-real: {navH
 			? `${navH}px`
 			: 'var(--nav-h)'}"

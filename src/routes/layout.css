@@ -61,6 +61,13 @@
 	   read as words; --ws-accent stays the colour for icons, fills and rules. */
 	--accent-ink: color-mix(in oklab, var(--ws-accent, var(--accent)) 80%, var(--ink-2));
 
+	/* Keyboard focus. The soft halo alone was the accent at 32% — about 1.5:1
+	   on paper, under the 3:1 a focus indicator needs. The solid line inside it
+	   is accent-as-text, which is already held above 4.5:1. Redeclared in
+	   .accent-scope so it takes the workspace's hue (see there). */
+	--focus-ring:
+		0 0 0 2px var(--accent-ink), 0 0 0 5px color-mix(in oklab, var(--accent) 22%, transparent);
+
 	/* Editorial type scale */
 	--fs-mega: clamp(3.6rem, 3rem + 3vw, 4.6rem);
 	--fs-hero: 3rem;
@@ -145,6 +152,24 @@
 	--accent-ink: color-mix(in oklab, var(--ws-accent, var(--accent)) 55%, var(--ink-2));
 }
 
+/*
+ * The accent as text, again — on the elements that set the accent.
+ *
+ * A custom property's var() resolves where it is declared, and the two
+ * declarations above sit on :root, where --ws-accent is never set; the
+ * workspace sets it on its own wrapper. So --accent-ink always came out as the
+ * pending amber, whatever accent the workspace had picked. Declaring it here,
+ * on every element that sets --ws-accent, resolves it against the real one.
+ */
+.accent-scope {
+	--accent-ink: color-mix(in oklab, var(--ws-accent, var(--accent)) 80%, var(--ink-2));
+	--focus-ring:
+		0 0 0 2px var(--accent-ink), 0 0 0 5px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+:root[data-contrast='more'] .accent-scope {
+	--accent-ink: color-mix(in oklab, var(--ws-accent, var(--accent)) 55%, var(--ink-2));
+}
+
 @layer base {
 	html {
 		font-family: var(--font-sans);
@@ -217,7 +242,7 @@
 	}
 	input[type='checkbox']:focus-visible,
 	input[type='radio']:focus-visible {
-		box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent);
+		box-shadow: var(--focus-ring);
 	}
 
 	/* The dropped-open option list does NOT follow `color-scheme` the way the
@@ -267,7 +292,7 @@
 
 	:focus-visible {
 		outline: none;
-		box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent);
+		box-shadow: var(--focus-ring);
 	}
 }
 
@@ -651,7 +676,7 @@
 		):focus-visible,
 	select:focus-visible,
 	textarea:focus-visible {
-		box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent);
+		box-shadow: var(--focus-ring);
 	}
 
 	/*
@@ -717,7 +742,7 @@
 			):focus-visible,
 		:root[data-input='pointer'] select:focus-visible,
 		:root[data-input='pointer'] textarea:focus-visible {
-			box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 32%, transparent);
+			box-shadow: var(--focus-ring);
 			outline: 2px solid CanvasText;
 			outline-offset: 2px;
 		}

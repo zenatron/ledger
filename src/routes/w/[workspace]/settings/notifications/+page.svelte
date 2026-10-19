@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/Badge.svelte';
 	import { untrack } from 'svelte';
 	import Segmented from '$lib/components/Segmented.svelte';
 	import { submit } from '$lib/actions/submit';
@@ -372,11 +373,7 @@
 		onToggle={(next) => setCadence(next ? 'weekly' : 'off')}
 	>
 		{#snippet badge()}
-			<span
-				class="rounded-[var(--r-full)] px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.06em] uppercase"
-				style="background: color-mix(in oklab, var(--pending) 16%, var(--surface)); color: var(--pending)"
-				>Alpha</span
-			>
+			<Badge>Alpha</Badge>
 		{/snippet}
 		<form method="POST" action="?/summary" use:submit={{ success: 'Summary updated' }}>
 			<Segmented

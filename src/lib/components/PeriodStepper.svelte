@@ -59,7 +59,7 @@
 	<div class="min-w-0 text-center">
 		<p class="truncate text-[17px] font-semibold" style="color: var(--ink)">{label}</p>
 		{#if sublabel}
-			<p class="section-label mt-0.5 text-[10px]">{sublabel}</p>
+			<p class="section-label mt-0.5 text-[11px]">{sublabel}</p>
 		{/if}
 	</div>
 	{@render arrow(next, nextLabel, 'next')}

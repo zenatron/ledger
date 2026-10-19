@@ -1,4 +1,5 @@
 import { env as rawEnv } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
 import * as v from 'valibot';
 import { isPublicNominatim } from '$lib/infra/geocode/public';
 
@@ -115,8 +116,14 @@ let cached: Env | undefined;
 /** Lazy so importing this module during `vite build` doesn't require a full env. */
 export function getEnv(): Env {
 	if (cached) return cached;
+	// SvelteKit keeps PUBLIC_-prefixed variables out of the private env, so
+	// PUBLIC_ORIGIN never arrived from there: every deployment ran on the
+	// localhost default, and ntfy links and the web-push contact said so. It is
+	// read from the public env, where SvelteKit puts it.
 	// Empty string means unset (compose interpolation defaults produce "").
-	const present = Object.fromEntries(Object.entries(rawEnv).filter(([, val]) => val !== ''));
+	const present = Object.fromEntries(
+		Object.entries({ ...publicEnv, ...rawEnv }).filter(([, val]) => val !== '')
+	);
 	const result = v.safeParse(EnvSchema, present);
 	if (!result.success) {
 		const problems = result.issues

@@ -3,6 +3,7 @@ import { getDb } from '$lib/server/db';
 import { getLlmAssist } from '$lib/infra/llm';
 import { suggestCategory } from '$lib/application/suggest-category';
 import type { RequestHandler } from './$types';
+import { assertSameOrigin } from '$lib/http/origin';
 
 /**
  * Suggest a category for a purchase from its item name and merchant, as the Add
@@ -16,6 +17,7 @@ import type { RequestHandler } from './$types';
  * AI off this is now the only category help in the app rather than none.
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
+	assertSameOrigin(request);
 	const ws = locals.workspace!;
 	const body = await request.json().catch(() => ({}));
 	const itemName = typeof body?.itemName === 'string' ? body.itemName.trim().slice(0, 120) : '';

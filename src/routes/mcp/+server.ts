@@ -25,6 +25,11 @@ const CORS = {
 	'Access-Control-Max-Age': '86400'
 };
 
+/** Per-token calls a minute: generous, but bounds a runaway agent loop. */
+const CALLS_PER_MINUTE = 240;
+/** Messages in one JSON-RPC batch. Clients send one at a time in practice. */
+const MAX_BATCH = 20;
+
 function unauthorized(message: string) {
 	return json(
 		{ jsonrpc: '2.0', id: null, error: { code: -32001, message } },
@@ -64,7 +69,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 	if (!authed) return unauthorized('Invalid, expired, or revoked token.');
 
 	// Per-token call budget: generous, but bounds a runaway agent loop.
-	if (!rateLimitOk(`mcp-call:${authed.tokenId}`, 240, 60_000)) {
+	if (!rateLimitOk(`mcp-call:${authed.tokenId}`, CALLS_PER_MINUTE, 60_000)) {
 		return json(
 			{
 				jsonrpc: '2.0',
@@ -94,8 +99,33 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 
 	// A batch (array) or a single message. Notifications (no id) produce no reply.
 	const messages = Array.isArray(body) ? body : [body];
+	// The call budget above counts requests, so a batch is bounded and every
+	// message after the first is charged to it too — otherwise one POST of a
+	// thousand tool calls would cost the same as one.
+	if (messages.length > MAX_BATCH) {
+		return json(
+			{
+				jsonrpc: '2.0',
+				id: null,
+				error: { code: -32600, message: `Batch too large. Send at most ${MAX_BATCH} messages.` }
+			},
+			{ status: 400, headers: CORS }
+		);
+	}
 	const responses = [];
-	for (const m of messages) {
+	for (const [i, m] of messages.entries()) {
+		if (i > 0 && !rateLimitOk(`mcp-call:${authed.tokenId}`, CALLS_PER_MINUTE, 60_000)) {
+			// Dropped either way; only a request (one with an id) is owed a reply.
+			const id = (m as JsonRpcRequest | null)?.id;
+			if (id !== undefined) {
+				responses.push({
+					jsonrpc: '2.0',
+					id,
+					error: { code: -32002, message: 'Rate limit exceeded. Slow down.' }
+				});
+			}
+			continue;
+		}
 		if (!m || typeof m !== 'object' || (m as JsonRpcRequest).jsonrpc !== '2.0') {
 			responses.push({
 				jsonrpc: '2.0',

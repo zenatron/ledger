@@ -95,16 +95,32 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	};
 };
 
-/** Resolve the config a form submission describes, keeping the stored key if blank. */
+/** The same server, however the path or trailing slash is written. */
+function sameOrigin(a: string | null, b: string | null): boolean {
+	if (!a || !b) return false;
+	try {
+		return new URL(a).origin === new URL(b).origin;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Resolve the config a form submission describes. A blank key keeps the stored
+ * one only for the server it was stored for: carried to a newly typed endpoint,
+ * a test or a save would send it there — to whatever host anyone with owner
+ * rights cared to name, including one who never knew the key.
+ */
 function configFromForm(
 	out: v.InferOutput<typeof ConfigSchema>,
-	stored: { aiApiKey: string | null }
+	stored: { aiApiKey: string | null; aiEndpoint: string | null }
 ): AssistConfig {
+	const keepStored = sameOrigin(out.endpoint || null, stored.aiEndpoint);
 	return {
 		aiMode: out.mode,
 		aiEndpoint: out.endpoint || null,
 		aiModel: out.model || null,
-		aiApiKey: out.apiKey ? out.apiKey : stored.aiApiKey
+		aiApiKey: out.apiKey ? out.apiKey : keepStored ? stored.aiApiKey : null
 	};
 }
 
@@ -124,7 +140,7 @@ export const actions: Actions = {
 		}
 
 		const db = getDb();
-		const cfg = configFromForm(out, { aiApiKey: locals.workspace!.aiApiKey });
+		const cfg = configFromForm(out, locals.workspace!);
 		await db
 			.update(workspace)
 			.set({
@@ -223,7 +239,7 @@ export const actions: Actions = {
 		if (!out.model) {
 			return { test: { ok: false, detail: 'Fill in the model first.' } };
 		}
-		const assist = getLlmAssist(configFromForm(out, { aiApiKey: locals.workspace!.aiApiKey }));
+		const assist = getLlmAssist(configFromForm(out, locals.workspace!));
 		const result = await assist.ping();
 		return { test: result };
 	}

@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import sharp, { type OutputInfo } from 'sharp';
 import {
 	ImageValidationError,
 	MAX_AVATAR_BYTES,
@@ -69,9 +69,20 @@ export async function processUpload(input: Uint8Array): Promise<ProcessedImage> 
 	 * landscape. Cropping to a uniform shape is a presentation choice and belongs
 	 * in CSS, where it can be changed later; these are the only copies kept.
 	 */
-	async function derive(edge: number): Promise<Derivative> {
-		const out = await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS })
-			.rotate() // bake EXIF orientation before metadata is dropped
+	/*
+	 * Decoded once. Each derivative used to run its own pipeline from the
+	 * upload, so a 12 MP phone JPEG — the expensive part — was decoded twice,
+	 * in parallel, per photo. Now the upload is decoded, oriented and brought
+	 * down to display size as raw pixels, and both WebPs are encoded from that;
+	 * the thumb's downscale starts from 1600 px rather than the full original.
+	 */
+	async function derive(
+		raw: { data: Buffer; info: OutputInfo },
+		edge: number
+	): Promise<Derivative> {
+		const out = await sharp(raw.data, {
+			raw: { width: raw.info.width, height: raw.info.height, channels: raw.info.channels }
+		})
 			.resize(edge, edge, { fit: 'inside', withoutEnlargement: true })
 			.webp({ quality: WEBP_QUALITY })
 			.toBuffer({ resolveWithObject: true });
@@ -79,7 +90,15 @@ export async function processUpload(input: Uint8Array): Promise<ProcessedImage> 
 	}
 
 	try {
-		const [display, thumb] = await Promise.all([derive(DISPLAY_EDGE), derive(THUMB_EDGE)]);
+		const raw = await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS })
+			.rotate() // bake EXIF orientation before metadata is dropped
+			.resize(DISPLAY_EDGE, DISPLAY_EDGE, { fit: 'inside', withoutEnlargement: true })
+			.raw()
+			.toBuffer({ resolveWithObject: true });
+		const [display, thumb] = await Promise.all([
+			derive(raw, DISPLAY_EDGE),
+			derive(raw, THUMB_EDGE)
+		]);
 		return { display, thumb };
 	} catch (e) {
 		if (e instanceof ImageValidationError) throw e;

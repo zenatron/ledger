@@ -14,7 +14,7 @@
 		X
 	} from '@lucide/svelte';
 	import { money } from '$lib/actions/money';
-	import { formatMinor } from '$lib/money-format';
+	import { formatMinor, minorToDecimalInput } from '$lib/money-format';
 
 	let { data, form } = $props();
 	let slug = $derived(page.params.workspace);
@@ -70,8 +70,12 @@
 		approvers = [...m.policy.routing.approver_ids];
 		bucketCharges = m.policy.bucket_charges ?? 'inherit';
 		bucketScope = m.policy.own_buckets_only ? 'own' : 'any';
+		// In the workspace's own minor units: dividing by 100 showed a ¥1,000
+		// threshold as "10.00", and saving any other change wrote ¥10.
 		threshold =
-			m.policy.threshold_minor !== undefined ? (m.policy.threshold_minor / 100).toFixed(2) : '';
+			m.policy.threshold_minor !== undefined
+				? minorToDecimalInput(m.policy.threshold_minor, data.workspace.currency)
+				: '';
 	}
 
 	const nameOf = (id: string) => data.members.find((m) => m.id === id)?.displayName ?? 'someone';
@@ -120,6 +124,11 @@
 				lines.push(
 					`Any of ${approvers.slice(0, -1).map(nameOf).join(', ')} or ${nameOf(approvers.at(-1)!)} can decide.`
 				);
+			// Allowed — a self-imposed second look is a real use — but easy to tick
+			// by accident in a list that includes them, and it undoes the rest.
+			if (sheet && approvers.includes(sheet.id)) {
+				lines.push(`${who} can approve their own purchases.`);
+			}
 		}
 		return lines.join(' ');
 	});
@@ -522,7 +531,7 @@
 													checked={approvers.includes(a.id)}
 													onchange={() => toggleApprover(a.id)}
 												/>
-												{a.displayName}
+												{a.displayName}{a.id === sheet?.id ? ' (themselves)' : ''}
 											</label>
 										{/each}
 									</div>
