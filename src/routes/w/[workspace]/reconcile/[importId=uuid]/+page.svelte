@@ -149,7 +149,23 @@
 				<p class="truncate text-[15px] font-medium" style="color: var(--ink)">
 					{l.rawDescription}
 				</p>
-				<p class="num mt-0.5 text-[13px]" style="color: var(--ink-3)">{fmtDay(l.postedAt)}</p>
+				<p class="num mt-0.5 text-[13px]" style="color: var(--ink-3)">
+					{fmtDay(l.postedAt)}
+					{#if l.matchState === 'unmatched' && (l.suggestedCategory || l.suggestedName)}
+						<!-- A bank rule's or merchant memory's proposal. Applied only if
+						     this line is added to the ledger, and labelled with its source. -->
+						<span style="font-family: var(--font-sans)">
+							· {l.suggestedName ? `${l.suggestedName} · ` : ''}{l.suggestedCategory
+								? `${l.suggestedCategory.icon ? `${l.suggestedCategory.icon} ` : ''}${l.suggestedCategory.name}`
+								: ''}
+							<span style="color: var(--ink-4, var(--ink-3))"
+								>({l.suggestedCategory?.source === 'memory'
+									? 'from past purchases'
+									: 'by rule'})</span
+							>
+						</span>
+					{/if}
+				</p>
 			</div>
 			<span class="num shrink-0 text-[15px] font-semibold" style="color: var(--ink)">
 				{formatMinor(l.amountMinor < 0n ? -l.amountMinor : l.amountMinor, l.currency)}
@@ -244,7 +260,20 @@
 				<p class="mt-2.5 text-[13px]" style="color: var(--ink-3)">Did you mean</p>
 				<div class="mt-1 flex flex-col gap-1.5">
 					{#each l.suggestions as s (s.id)}
-						<form method="POST" action="?/link" use:submit={{ success: 'Linked' }} class="contents">
+						{@const open = s.state !== 'completed' && s.state !== 'refunded'}
+						{@const mine = s.requesterId === data.viewerId}
+						<form
+							method="POST"
+							action={open ? '?/settle' : '?/link'}
+							use:submit={{
+								success: !open
+									? 'Linked'
+									: s.state === 'approved' && mine
+										? 'Marked bought'
+										: 'Matched — waiting on them'
+							}}
+							class="contents"
+						>
 							<input type="hidden" name="lineId" value={l.id} />
 							<input type="hidden" name="purchaseId" value={s.id} />
 							<button
@@ -256,7 +285,13 @@
 									<span class="block truncate text-[14px]" style="color: var(--ink-2)">
 										{s.itemName}{s.merchantName ? ` · ${s.merchantName}` : ''}
 									</span>
-									{#if s.completedAt}
+									{#if open}
+										<span class="mt-0.5 block text-[12px]" style="color: var(--ink-3)">
+											{s.state === 'approved' ? 'Approved' : 'Asked for'}, not marked bought{s.requesterName
+												? ` · ${s.requesterName}`
+												: ''}
+										</span>
+									{:else if s.completedAt}
 										<span class="num mt-0.5 block text-[12px]" style="color: var(--ink-3)">
 											{fmtDay(s.completedAt)}
 										</span>
@@ -265,8 +300,17 @@
 								<span class="num shrink-0 text-[14px]" style="color: var(--ink-3)">
 									{formatMinor(s.amountMinor, l.currency)}
 								</span>
-								<span class="shrink-0 text-[12px] font-medium" style="color: var(--accent)">
-									Link
+								<span
+									class="shrink-0 text-right text-[12px] font-medium"
+									style="color: var(--accent)"
+								>
+									{#if !open}
+										Link
+									{:else if s.state === 'approved'}
+										{mine ? 'Mark bought' : `Match · ${s.requesterName ?? 'they'} marks it bought`}
+									{:else}
+										Match · not approved yet
+									{/if}
 								</span>
 							</button>
 						</form>
@@ -305,7 +349,7 @@
 					     that are money in. -->
 					<form method="POST" action="?/create" use:submit={{ success: 'Added to the ledger' }}>
 						<input type="hidden" name="lineId" value={l.id} />
-						<input type="hidden" name="itemName" value={l.rawDescription} />
+						<input type="hidden" name="itemName" value={l.suggestedName ?? l.rawDescription} />
 						<button class="btn btn-ghost px-3.5 py-1.5 text-[13px]" style="color: var(--ink-2)">
 							<Plus class="h-3.5 w-3.5" /> Add to ledger
 						</button>

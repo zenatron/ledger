@@ -1,7 +1,14 @@
 import { eq, inArray } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
 import {
+	account,
+	apiToken,
 	approvalEvent,
+	bankBalanceSnapshot,
+	bankConnection,
+	bankFeedAccount,
+	bankRule,
+	bankSyncRun,
 	budget,
 	budgetAlertLog,
 	bucket,
@@ -11,11 +18,14 @@ import {
 	invite,
 	merchant,
 	notificationPref,
+	pendingShare,
 	purchase,
 	purchaseApprover,
 	purchaseImage,
 	recurringRule,
 	session,
+	statementImport,
+	statementLine,
 	workspace,
 	workspaceMember
 } from '$lib/db/schema';
@@ -57,10 +67,31 @@ export async function deleteWorkspace(db: Db, workspaceId: string): Promise<void
 		await tx.delete(purchaseImage).where(inArray(purchaseImage.purchaseId, purchaseIds));
 		await tx.delete(approvalEvent).where(inArray(approvalEvent.purchaseId, purchaseIds));
 		await tx.delete(notificationPref).where(inArray(notificationPref.workspaceMemberId, memberIds));
+		await tx.delete(apiToken).where(inArray(apiToken.workspaceMemberId, memberIds));
+
+		// Reconciliation and bank sync. Lines point at purchases, categories and
+		// imports; imports at accounts and members; feed accounts at accounts.
+		const connectionIds = tx
+			.select({ id: bankConnection.id })
+			.from(bankConnection)
+			.where(eq(bankConnection.workspaceId, workspaceId));
+		const feedIds = tx
+			.select({ id: bankFeedAccount.id })
+			.from(bankFeedAccount)
+			.where(eq(bankFeedAccount.workspaceId, workspaceId));
+		await tx.delete(statementLine).where(eq(statementLine.workspaceId, workspaceId));
+		await tx.delete(statementImport).where(eq(statementImport.workspaceId, workspaceId));
+		await tx.delete(bankRule).where(eq(bankRule.workspaceId, workspaceId));
+		await tx.delete(bankBalanceSnapshot).where(inArray(bankBalanceSnapshot.feedAccountId, feedIds));
+		await tx.delete(bankSyncRun).where(inArray(bankSyncRun.connectionId, connectionIds));
+		await tx.delete(bankFeedAccount).where(eq(bankFeedAccount.workspaceId, workspaceId));
+		await tx.delete(bankConnection).where(eq(bankConnection.workspaceId, workspaceId));
+		await tx.delete(pendingShare).where(eq(pendingShare.workspaceId, workspaceId));
 
 		// Direct children of the workspace. purchase, recurringRule, income and
 		// bucket all reference members and categories, so they precede those.
 		await tx.delete(purchase).where(eq(purchase.workspaceId, workspaceId));
+		await tx.delete(account).where(eq(account.workspaceId, workspaceId));
 		await tx.delete(recurringRule).where(eq(recurringRule.workspaceId, workspaceId));
 		await tx.delete(income).where(eq(income.workspaceId, workspaceId));
 		await tx.delete(budget).where(eq(budget.workspaceId, workspaceId));

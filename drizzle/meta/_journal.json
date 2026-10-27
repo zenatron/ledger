@@ -302,6 +302,13 @@
       "when": 1792446369532,
       "tag": "0042_token_expiry_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1793110128098,
+      "tag": "0043_bank_sync",
+      "breakpoints": true
     }
   ]
 }

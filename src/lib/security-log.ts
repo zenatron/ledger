@@ -97,6 +97,14 @@ export function describeEvent(e: LogEntry): string {
 				: `${who} changed ${Object.keys(d).join(', ')}`;
 		case 'workspace.deleted':
 			return `${who} deleted workspace “${d.name}”`;
+		case 'bank.connected':
+			return `${who} connected bank sync via ${d.host}`;
+		case 'bank.disconnected':
+			return `${who} disconnected bank sync “${d.label}”`;
+		case 'bank.account_toggled':
+			return `${who} turned ${d.enabled ? 'on' : 'off'} syncing for “${d.name}”`;
+		case 'bank.rule_changed':
+			return `${who} ${d.op === 'delete' ? 'deleted' : d.op === 'reapply' ? 're-applied' : 'added'} a bank rule${d.pattern ? ` for “${d.pattern}”` : ''}`;
 		default:
 			return `${who}: ${e.action}`;
 	}

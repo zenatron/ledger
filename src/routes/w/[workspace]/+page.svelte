@@ -14,6 +14,7 @@
 		Shapes,
 		Sparkles,
 		Users,
+		Landmark,
 		Webhook,
 		ShieldAlert
 	} from '@lucide/svelte';
@@ -253,6 +254,13 @@
 					FileCheck,
 					'Reconcile',
 					'Tick a bank statement against this ledger',
+					true
+				)}
+				{@render navRow(
+					'bank',
+					Landmark,
+					'Bank sync',
+					'Pull card and bank transactions in, read-only',
 					true
 				)}
 				{@render navRow('api', Webhook, 'API & MCP', 'Connect Claude or another assistant', true)}

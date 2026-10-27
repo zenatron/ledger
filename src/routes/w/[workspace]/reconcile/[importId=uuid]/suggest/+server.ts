@@ -45,10 +45,10 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const now = systemClock.now();
 	const scope = { workspaceId: ws.id, viewerId: locals.member!.id };
 
-	const imp = await getImport(db, ws.id, params.importId);
+	const imp = await getImport(db, ws.id, params.importId, locals.member!.id);
 	if (!imp) error(404, 'That import no longer exists.');
 
-	const line = await getLine(db, ws.id, lineId);
+	const line = await getLine(db, ws.id, lineId, locals.member!.id, now);
 	if (!line || line.importId !== imp.id) error(404, 'That line no longer exists.');
 	// Only a line with nothing on it. A matched or confirmed line already has an
 	// answer, and a `private` one is deliberately not ours to explain.

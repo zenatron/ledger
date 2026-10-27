@@ -78,12 +78,12 @@ describe('createPurchaseFromLine', () => {
 		// The line IS the statement evidence, so the cleared mark landed now.
 		expect(p.clearedAt?.toISOString()).toBe(NOW.toISOString());
 
-		const after = (await getLine(h!.db, ws.workspaceId, line.id))!;
+		const after = (await getLine(h!.db, ws.workspaceId, line.id, ws.ownerMemberId, NOW))!;
 		expect(after.matchState).toBe('confirmed');
 		expect(after.matchedPurchaseId).toBe(r.purchaseId);
 		expect(after.matchReason).toBe('created from statement');
 
-		const impAfter = (await getImport(h!.db, ws.workspaceId, imp.importId))!;
+		const impAfter = (await getImport(h!.db, ws.workspaceId, imp.importId, ws.ownerMemberId))!;
 		expect(impAfter.matchedCount).toBeGreaterThan(imp.matchedCount);
 	});
 
@@ -106,7 +106,7 @@ describe('createPurchaseFromLine', () => {
 			ReconcileError
 		);
 		// Nothing was created on the way to the refusal.
-		const after = (await getLine(h!.db, ws.workspaceId, line.id))!;
+		const after = (await getLine(h!.db, ws.workspaceId, line.id, ws.ownerMemberId, NOW))!;
 		expect(after.matchState).toBe('unmatched');
 		expect(imp.importId).toBeTruthy();
 	});
@@ -150,7 +150,7 @@ describe('createPurchaseFromLine', () => {
 		// cleared_at is a person's mark on a finished purchase: it waits.
 		expect(p.clearedAt).toBeNull();
 
-		const after = (await getLine(h!.db, ws.workspaceId, line.id))!;
+		const after = (await getLine(h!.db, ws.workspaceId, line.id, ws.ownerMemberId, NOW))!;
 		expect(after.matchState).toBe('matched');
 		expect(after.matchedPurchaseId).toBe(r.purchaseId);
 	});
@@ -182,10 +182,14 @@ describe('statement close', () => {
 		await createPurchaseFromLine(h!.db, deps, scope, unknown.id);
 
 		await closeImport(h!.db, deps, scope, imp.importId);
-		expect((await getImport(h!.db, ws.workspaceId, imp.importId))!.status).toBe('reconciled');
+		expect((await getImport(h!.db, ws.workspaceId, imp.importId, ws.ownerMemberId))!.status).toBe(
+			'reconciled'
+		);
 
 		await reopenImport(h!.db, deps, scope, imp.importId);
-		expect((await getImport(h!.db, ws.workspaceId, imp.importId))!.status).toBe('reviewing');
+		expect((await getImport(h!.db, ws.workspaceId, imp.importId, ws.ownerMemberId))!.status).toBe(
+			'reviewing'
+		);
 	});
 
 	it('reopens on its own when a closed statement gets a line back in review', async () => {
@@ -196,7 +200,12 @@ describe('statement close', () => {
 		// "closed" over an unanswered line.
 		const credit = await lineByDescription(h!.db, 'REFUND CREDIT');
 		await unignoreLine(h!.db, deps, done.scope, credit.id);
-		const imp = (await getImport(h!.db, done.ws.workspaceId, done.imp.importId))!;
+		const imp = (await getImport(
+			h!.db,
+			done.ws.workspaceId,
+			done.imp.importId,
+			done.ws.ownerMemberId
+		))!;
 		expect(imp.status).toBe('reviewing');
 	});
 });
