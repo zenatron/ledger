@@ -45,7 +45,8 @@ export const bucketStatus = pgEnum('bucket_status', ['active', 'paused', 'archiv
 // allows a third-party API for those who don't mind the privacy trade.
 export const aiMode = pgEnum('workspace_ai_mode', ['off', 'local', 'external']);
 export const bucketTxnType = pgEnum('bucket_txn_type', ['accrual', 'withdrawal', 'adjustment']);
-export const statementImportFormat = pgEnum('statement_import_format', ['csv', 'pdf']);
+// 'sync' is a rolling per-account, per-month import filled by a bank feed.
+export const statementImportFormat = pgEnum('statement_import_format', ['csv', 'pdf', 'sync']);
 /** A card or account statements arrive for. See the `account` table. */
 export const accountKind = pgEnum('account_kind', ['card', 'bank']);
 export const statementLineMatchState = pgEnum('statement_line_match_state', [
@@ -694,6 +695,14 @@ export const statementImport = pgTable(
 		 * guard will be written against.
 		 */
 		modelRead: boolean('model_read').notNull().default(false),
+		/**
+		 * Who may open this statement. Null = every member (an uploaded file, a
+		 * joint account). Set = only that member: a bank-synced card is private to
+		 * its cardholder by default, because a raw bank line is exactly how a gift
+		 * gets spoiled — the seal on the purchase can't hide a descriptor nobody
+		 * logged yet. Enforced in repo/statements on every read.
+		 */
+		visibleToMemberId: uuid('visible_to_member_id').references(() => workspaceMember.id),
 		contentHash: text('content_hash').notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
 	},
@@ -732,13 +741,214 @@ export const statementLine = pgTable(
 		 * nothing in range at all.
 		 */
 		suggestedPurchaseIds: jsonb('suggested_purchase_ids').notNull().default([]).$type<string[]>(),
-		dedupHash: text('dedup_hash').notNull()
+		dedupHash: text('dedup_hash').notNull(),
+		/**
+		 * A category to file this line under if it becomes a purchase. Set by a
+		 * bank rule or by what this workspace filed the same merchant under before.
+		 * A suggestion only: it pre-fills "Add to ledger", it never writes a purchase.
+		 */
+		suggestedCategoryId: uuid('suggested_category_id').references(() => category.id),
+		/** A cleaner name than the bank descriptor, when a rule supplied one. */
+		suggestedName: text('suggested_name'),
+		/** 'rule' | 'memory' — where the suggestion came from, shown beside it. */
+		suggestionSource: text('suggestion_source'),
+		/** The rule that answered this line, if any. Not a foreign key: deleting a
+		 *  rule must not rewrite history. */
+		ruleId: uuid('rule_id')
 	},
 	(t) => [
 		index('statement_line_import_idx').on(t.importId),
 		index('statement_line_matched_purchase_idx').on(t.matchedPurchaseId),
-		uniqueIndex('statement_line_import_dedup_uq').on(t.importId, t.dedupHash)
+		uniqueIndex('statement_line_import_dedup_uq').on(t.importId, t.dedupHash),
+		// A bank feed's transaction id, namespaced by feed account. Unique across
+		// the workspace so overlapping sync windows can never store a line twice.
+		uniqueIndex('statement_line_external_uq')
+			.on(t.workspaceId, t.externalId)
+			.where(sql`${t.externalId} is not null`)
 	]
+);
+
+/*
+ * Bank sync — a read-only, one-way feed of transactions from a bank aggregator
+ * (SimpleFIN today) into reconciliation.
+ *
+ * The feed only ever *adds statement lines*. It never creates, edits or deletes
+ * a purchase. Lines land in the same review flow as an imported CSV, so the
+ * ledger stays something a person vouches for.
+ */
+export const bankProvider = pgEnum('bank_provider', ['simplefin']);
+export const bankConnectionStatus = pgEnum('bank_connection_status', [
+	'active',
+	'error',
+	'revoked',
+	'disconnected'
+]);
+
+export const bankConnection = pgTable(
+	'bank_connection',
+	{
+		id: uuid('id').primaryKey(),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspace.id),
+		/** Who connected it. Syncs read purchases as this member (seal filter). */
+		memberId: uuid('member_id')
+			.notNull()
+			.references(() => workspaceMember.id),
+		provider: bankProvider('provider').notNull(),
+		label: text('label').notNull(),
+		/**
+		 * The provider credential (a SimpleFIN access URL, which carries Basic
+		 * auth). Always AES-256-GCM via SECRETS_KEY — connecting refuses without
+		 * a key. Null once disconnected: the credential is destroyed, not kept.
+		 */
+		credentialSealed: text('credential_sealed'),
+		/** Host the credential talks to, for display. Never the credential itself. */
+		host: text('host').notNull(),
+		status: bankConnectionStatus('status').notNull().default('active'),
+		lastError: text('last_error'),
+		lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+		lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+		nextSyncAt: timestamp('next_sync_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+		disconnectedAt: timestamp('disconnected_at', { withTimezone: true })
+	},
+	(t) => [
+		index('bank_connection_workspace_idx').on(t.workspaceId),
+		index('bank_connection_due_idx')
+			.on(t.nextSyncAt)
+			.where(sql`${t.status} = 'active'`)
+	]
+);
+
+export const bankFeedAccount = pgTable(
+	'bank_feed_account',
+	{
+		id: uuid('id').primaryKey(),
+		connectionId: uuid('connection_id')
+			.notNull()
+			.references(() => bankConnection.id),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspace.id),
+		/** The provider's id for the account. Opaque. */
+		externalId: text('external_id').notNull(),
+		name: text('name').notNull(),
+		institution: text('institution'),
+		currency: text('currency').notNull(),
+		/** Whose card this is. Matching runs as them, and with `visibility =
+		 *  'holder'` only they see its lines and balance. Set on enable. */
+		holderMemberId: uuid('holder_member_id').references(() => workspaceMember.id),
+		/** 'holder' (default — private to the cardholder) | 'shared' (joint). */
+		visibility: text('visibility').notNull().default('holder'),
+		/** Ledger account (card) its lines are attributed to. Created on enable. */
+		accountId: uuid('account_id').references(() => account.id),
+		/** Opt-in: a newly discovered account syncs nothing until someone says so. */
+		enabled: boolean('enabled').notNull().default(false),
+		/** Unsupported currency etc. — shown, never synced. */
+		unsupportedReason: text('unsupported_reason'),
+		balanceMinor: bigint('balance_minor', { mode: 'bigint' }),
+		availableBalanceMinor: bigint('available_balance_minor', { mode: 'bigint' }),
+		balanceAt: timestamp('balance_at', { withTimezone: true }),
+		/** Transactions are stored up to here. Null = never synced; the next sync
+		 *  backfills. Each sync re-reads a few days before it, since banks post late. */
+		syncedThrough: timestamp('synced_through', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
+	},
+	(t) => [uniqueIndex('bank_feed_account_conn_ext_uq').on(t.connectionId, t.externalId)]
+);
+
+/** One balance per feed account per day, for tracking balances over time. */
+export const bankBalanceSnapshot = pgTable(
+	'bank_balance_snapshot',
+	{
+		feedAccountId: uuid('feed_account_id')
+			.notNull()
+			.references(() => bankFeedAccount.id),
+		day: date('day').notNull(),
+		balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull(),
+		availableBalanceMinor: bigint('available_balance_minor', { mode: 'bigint' }),
+		currency: text('currency').notNull()
+	},
+	(t) => [primaryKey({ columns: [t.feedAccountId, t.day] })]
+);
+
+/**
+ * One row per sync attempt — the operational log. What was asked for, what
+ * came back, what was stored, and any error, sanitised. Never the credential.
+ */
+export const bankSyncRun = pgTable(
+	'bank_sync_run',
+	{
+		id: uuid('id').primaryKey(),
+		connectionId: uuid('connection_id')
+			.notNull()
+			.references(() => bankConnection.id),
+		workspaceId: uuid('workspace_id').notNull(),
+		/** 'schedule' | 'manual' | 'connect' */
+		trigger: text('trigger').notNull(),
+		startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+		finishedAt: timestamp('finished_at', { withTimezone: true }),
+		/** 'running' | 'ok' | 'partial' | 'error' */
+		status: text('status').notNull(),
+		windowStart: timestamp('window_start', { withTimezone: true }),
+		windowEnd: timestamp('window_end', { withTimezone: true }),
+		httpStatus: integer('http_status'),
+		accountsSeen: integer('accounts_seen').notNull().default(0),
+		fetched: integer('fetched').notNull().default(0),
+		inserted: integer('inserted').notNull().default(0),
+		duplicates: integer('duplicates').notNull().default(0),
+		skipped: integer('skipped').notNull().default(0),
+		matched: integer('matched').notNull().default(0),
+		categorized: integer('categorized').notNull().default(0),
+		ignoredByRule: integer('ignored_by_rule').notNull().default(0),
+		/** Provider-reported and local problems, sanitised: {code,msg,account}[] */
+		messages: jsonb('messages').notNull().default([]).$type<BankSyncMessage[]>(),
+		durationMs: integer('duration_ms')
+	},
+	(t) => [index('bank_sync_run_conn_idx').on(t.connectionId, t.startedAt)]
+);
+
+export interface BankSyncMessage {
+	level: 'info' | 'warn' | 'error';
+	code: string;
+	msg: string;
+	account?: string;
+}
+
+export const bankRuleMatch = pgEnum('bank_rule_match', ['contains', 'starts_with', 'equals']);
+export const bankRuleAction = pgEnum('bank_rule_action', ['categorize', 'ignore']);
+
+/**
+ * "Lines like this are that." Applied to each new synced line in priority
+ * order; the first that fits wins. Patterns are plain text compared against the
+ * normalised descriptor — never a regex, so a rule can't be made to hang a sync.
+ */
+export const bankRule = pgTable(
+	'bank_rule',
+	{
+		id: uuid('id').primaryKey(),
+		workspaceId: uuid('workspace_id')
+			.notNull()
+			.references(() => workspace.id),
+		priority: integer('priority').notNull().default(100),
+		match: bankRuleMatch('match').notNull(),
+		pattern: text('pattern').notNull(),
+		/** 'out' | 'in' | 'any' */
+		direction: text('direction').notNull().default('out'),
+		/** Inclusive bounds on the line's magnitude, minor units. */
+		minAmountMinor: bigint('min_amount_minor', { mode: 'bigint' }),
+		maxAmountMinor: bigint('max_amount_minor', { mode: 'bigint' }),
+		/** Limit to one feed account; null = all. */
+		feedAccountId: uuid('feed_account_id').references(() => bankFeedAccount.id),
+		action: bankRuleAction('action').notNull(),
+		categoryId: uuid('category_id').references(() => category.id),
+		renameTo: text('rename_to'),
+		hitCount: integer('hit_count').notNull().default(0),
+		lastHitAt: timestamp('last_hit_at', { withTimezone: true }),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull()
+	},
+	(t) => [index('bank_rule_workspace_idx').on(t.workspaceId, t.priority)]
 );
 
 export const pushSubscription = pgTable('push_subscription', {

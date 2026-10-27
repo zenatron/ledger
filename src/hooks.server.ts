@@ -28,6 +28,8 @@ import { sendSafeToSpendAlerts } from '$lib/application/safe-to-spend-alerts';
 import { materializeDueRules } from '$lib/application/recurring';
 import { checkBudgetAlerts } from '$lib/application/budget-alerts';
 import { materializeBucketAccruals } from '$lib/application/buckets';
+import { syncDueConnections } from '$lib/application/bank-sync';
+import { bankSyncDeps } from '$lib/server/bank-sync';
 import { sweepExpiredShares } from '$lib/repo/shares';
 import { deleteExpiredSessions } from '$lib/server/auth/session';
 import { systemClock } from '$lib/infra/time/system-clock';
@@ -122,6 +124,11 @@ export const init: ServerInit = async () => {
 			name: 'bucket accrual',
 			done: 'bucket accruals',
 			run: () => materializeBucketAccruals(getDb(), serverDeps())
+		},
+		{
+			name: 'bank sync',
+			done: 'bank lines synced',
+			run: () => syncDueConnections(getDb(), bankSyncDeps())
 		},
 		{
 			name: 'share cleanup',

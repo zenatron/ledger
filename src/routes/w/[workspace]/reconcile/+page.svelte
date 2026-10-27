@@ -543,7 +543,9 @@
 				>
 					<div class="min-w-0 flex-1">
 						<p class="flex items-center gap-1.5 text-[16px] font-medium" style="color: var(--ink)">
-							<span class="truncate">{period ?? imp.filename}</span>
+							<!-- A synced statement is named for its card and month, which says more
+							     than a date range. -->
+							<span class="truncate">{imp.synced ? imp.filename : (period ?? imp.filename)}</span>
 							{#if imp.modelRead}
 								<!-- Marked in the list too: you should know before you open it. -->
 								<Sparkles
@@ -562,9 +564,12 @@
 						</p>
 						<p class="mt-0.5 truncate text-[13px]" style="color: var(--ink-3)">
 							{imp.lineCount}
-							{imp.lineCount === 1 ? 'line' : 'lines'} · {imp.importedByName} · {fmtDateLong(
-								imp.createdAt
-							)}
+							{imp.lineCount === 1 ? 'line' : 'lines'} ·
+							{#if imp.synced}
+								{imp.privateToViewer ? 'Bank sync · only you see this' : 'Bank sync · shared'}
+							{:else}
+								{imp.importedByName} · {fmtDateLong(imp.createdAt)}
+							{/if}
 						</p>
 					</div>
 					<!--

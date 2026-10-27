@@ -90,6 +90,25 @@ const EnvSchema = v.pipe(
 				)
 			)
 		),
+		/*
+		 * Bank sync (SimpleFIN). Off until a workspace owner connects a bridge,
+		 * and connecting refuses without SECRETS_KEY — the stored credential reads
+		 * every transaction on every linked account.
+		 */
+		/** Extra SimpleFIN bridge hosts to allow, comma-separated. The official
+		 *  bridge is always allowed; this is for a self-hosted one. */
+		SIMPLEFIN_ALLOWED_HOSTS: v.optional(v.string(), ''),
+		/** Hours between scheduled syncs. The bridge refreshes about once a day
+		 *  and asks for ≤24 requests/day, so 2–24. */
+		BANK_SYNC_INTERVAL_HOURS: v.optional(
+			v.pipe(v.string(), v.transform(Number), v.integer(), v.minValue(2), v.maxValue(24)),
+			'6'
+		),
+		/** How far back a newly enabled account's first sync reaches (max 90). */
+		BANK_SYNC_BACKFILL_DAYS: v.optional(
+			v.pipe(v.string(), v.transform(Number), v.integer(), v.minValue(1), v.maxValue(90)),
+			'30'
+		),
 		/** Disposable third-party bytes. Deliberately outside BLOB_DIR so backups
 		 *  don't carry hundreds of megabytes of somebody else's map; safe to delete. */
 		TILE_CACHE_DIR: v.optional(v.pipe(v.string(), v.nonEmpty()), './data/tiles')

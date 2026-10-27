@@ -8,6 +8,7 @@ import {
 	createPurchaseFromLine,
 	ignoreLine,
 	linkManually,
+	settleOpenFromLine,
 	reopenImport,
 	unignoreLine,
 	unlinkMatch
@@ -32,7 +33,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const now = systemClock.now();
 	const scope = { workspaceId: ws.id, viewerId: locals.member!.id };
 
-	const imp = await getImport(db, ws.id, params.importId);
+	const imp = await getImport(db, ws.id, params.importId, locals.member!.id);
 	if (!imp) error(404, 'That import no longer exists.');
 
 	const lines = await listLines(db, scope, imp.id, now);
@@ -65,8 +66,11 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			aiModel: ws.aiModel,
 			aiApiKey: ws.aiApiKey
 		}).available,
+		viewerId: locals.member!.id,
 		import: {
 			id: imp.id,
+			synced: imp.format === 'sync',
+			privateToViewer: imp.visibleToMemberId === locals.member!.id,
 			filename: imp.filename,
 			createdAt: imp.createdAt.toISOString(),
 			lineCount: imp.lineCount,
@@ -84,13 +88,18 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			rawDescription: l.rawDescription,
 			matchState: l.matchState,
 			matchReason: l.matchReason,
+			suggestedName: l.suggestedName,
+			suggestedCategory: l.suggestedCategory,
 			suggestions: l.suggestions.map((p) => ({
 				id: p.id,
 				itemName: p.itemName,
 				merchantName: p.merchantName,
 				categoryIcon: p.categoryIcon,
 				completedAt: p.completedAt?.toISOString() ?? null,
-				amountMinor: p.amountMinor
+				amountMinor: p.amountMinor,
+				state: p.state ?? 'completed',
+				requesterId: p.requesterId ?? null,
+				requesterName: p.requesterName ?? null
 			})),
 			purchase: l.purchase
 				? {
@@ -161,6 +170,26 @@ export const actions: Actions = {
 		const purchaseId = String(form.get('purchaseId') ?? '');
 		if (!purchaseId) return fail(400, { error: 'Pick a purchase to link.' });
 		return run(() => linkManually(getDb(), deps, scopeOf(locals), id, purchaseId));
+	},
+	// A charge for something asked for first: mark it bought (approved), or hold
+	// the line against it until it's decided (pending).
+	settle: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = String(form.get('lineId') ?? '');
+		const purchaseId = String(form.get('purchaseId') ?? '');
+		if (!purchaseId) return fail(400, { error: 'Pick a request to match.' });
+		try {
+			const r = await settleOpenFromLine(
+				getDb(),
+				{ ...deps, notifier: getNotifier() },
+				scopeOf(locals),
+				id,
+				purchaseId
+			);
+			return { ok: true, settled: r.state };
+		} catch (e) {
+			return refusal(e);
+		}
 	},
 	ignore: async ({ request, locals }) => {
 		const id = String((await request.formData()).get('lineId') ?? '');

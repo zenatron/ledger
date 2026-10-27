@@ -24,10 +24,17 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '$lib/db/types';
 import { purchase, statementImport, statementLine } from '$lib/db/schema';
-import { dedupKey, parseCsv, type CsvColumnMap } from '$lib/domain/reconcile/parse-csv';
+import {
+	dedupKey,
+	parseCsv,
+	type CsvColumnMap,
+	type RawStatementLine
+} from '$lib/domain/reconcile/parse-csv';
 import { matchLines } from '$lib/domain/reconcile/match';
+
+type LineProposal = ReturnType<typeof matchLines>[number];
 import { Money } from '$lib/domain/money/money';
-import { submitPurchase } from '$lib/application/purchases';
+import { completePurchase, submitPurchase } from '$lib/application/purchases';
 import {
 	confirmedLineFor,
 	countUnsettled,
@@ -35,6 +42,7 @@ import {
 	getImport,
 	getLine,
 	matchCandidates,
+	openCandidates,
 	refreshMatchedCount,
 	sealedCandidateKeys
 } from '$lib/repo/statements';
@@ -78,6 +86,80 @@ export interface ImportResult {
 	matchedCount: number;
 	/** Parse failures, by CSV line number. Reported, never silently dropped. */
 	errors: { line: number; message: string }[];
+}
+
+/**
+ * Propose a match for each line against the purchases the actor can see, then
+ * run the seal-aware second pass. Shared by statement imports and bank sync so
+ * both reach the same verdicts the same way. Writes nothing.
+ */
+export async function proposeMatches(
+	db: Db,
+	scope: Scope,
+	lines: RawStatementLine[],
+	accountId: string | null,
+	now: Date,
+	/** Purchases already proposed to or claimed by another line. */
+	exclude: ReadonlySet<string> = new Set()
+): Promise<{ proposals: LineProposal[]; privateLines: Set<number> }> {
+	if (lines.length === 0) return { proposals: [], privateLines: new Set() };
+	const times = lines.map((l) => l.postedAt.getTime());
+	const periodStart = new Date(Math.min(...times));
+	const periodEnd = new Date(Math.max(...times));
+
+	// Widen the candidate window by the tolerance at both ends: a purchase made
+	// two days before the statement's first line can still be the line that
+	// opens it.
+	const from = new Date(periodStart.getTime() - TOLERANCE_DAYS * DAY_MS);
+	const to = new Date(periodEnd.getTime() + TOLERANCE_DAYS * DAY_MS);
+
+	const viewerScope = { workspaceId: scope.workspaceId, viewerId: scope.memberId };
+	const [settled, open, sealedKeys] = await Promise.all([
+		matchCandidates(db, viewerScope, from, to, now),
+		openCandidates(db, viewerScope, from, to, now),
+		sealedCandidateKeys(db, viewerScope, from, to, now)
+	]);
+	const candidates = [...settled, ...open].filter((c) => !exclude.has(c.id));
+
+	const proposals = matchLines(lines, candidates, {
+		toleranceDays: TOLERANCE_DAYS,
+		accountId
+	});
+
+	/*
+	 * Seal-aware second pass.
+	 *
+	 * Matching above ran only over purchases the importer can see, which is the
+	 * right default — but it leaves a line for a concealed purchase looking
+	 * unexplained, and the natural response to an unexplained line is to log it,
+	 * creating a duplicate of a purchase you're not allowed to know about. The
+	 * schema anticipates this with a `private` state: "accounted for, not shown".
+	 *
+	 * What this reveals is bounded: that *some* hidden purchase exists at an
+	 * amount and date the importer is already reading off their own bank
+	 * statement. It reveals no item, no merchant, no member, and the line carries
+	 * no purchase id, so nothing can be followed. That is a smaller disclosure
+	 * than the alternative, where the importer reconstructs the same fact by
+	 * noticing a line they cannot account for.
+	 */
+	const sealedRemaining = sealedKeys.map((k) => ({ ...k, used: false }));
+	const privateLines = new Set<number>();
+	for (const p of proposals) {
+		if (p.state === 'matched') continue;
+		const line = lines[p.lineIndex];
+		const abs = (n: bigint) => (n < 0n ? -n : n);
+		const hit = sealedRemaining.find(
+			(k) =>
+				!k.used &&
+				abs(k.amountMinor) === abs(line.amountMinor) &&
+				Math.abs(k.completedAt.getTime() - line.postedAt.getTime()) <= TOLERANCE_DAYS * DAY_MS
+		);
+		if (hit) {
+			hit.used = true;
+			privateLines.add(p.lineIndex);
+		}
+	}
+	return { proposals, privateLines };
 }
 
 /**
@@ -140,56 +222,13 @@ export async function importStatement(
 	const periodStart = new Date(Math.min(...times));
 	const periodEnd = new Date(Math.max(...times));
 
-	// Widen the candidate window by the tolerance at both ends: a purchase made
-	// two days before the statement's first line can still be the line that
-	// opens it.
-	const from = new Date(periodStart.getTime() - TOLERANCE_DAYS * DAY_MS);
-	const to = new Date(periodEnd.getTime() + TOLERANCE_DAYS * DAY_MS);
-
-	const viewerScope = { workspaceId: scope.workspaceId, viewerId: scope.memberId };
-	const [candidates, sealedKeys] = await Promise.all([
-		matchCandidates(db, viewerScope, from, to, now),
-		sealedCandidateKeys(db, viewerScope, from, to, now)
-	]);
-
-	const proposals = matchLines(lines, candidates, {
-		toleranceDays: TOLERANCE_DAYS,
-		accountId: input.accountId ?? null
-	});
-
-	/*
-	 * Seal-aware second pass.
-	 *
-	 * Matching above ran only over purchases the importer can see, which is the
-	 * right default — but it leaves a line for a concealed purchase looking
-	 * unexplained, and the natural response to an unexplained line is to log it,
-	 * creating a duplicate of a purchase you're not allowed to know about. The
-	 * schema anticipates this with a `private` state: "accounted for, not shown".
-	 *
-	 * What this reveals is bounded: that *some* hidden purchase exists at an
-	 * amount and date the importer is already reading off their own bank
-	 * statement. It reveals no item, no merchant, no member, and the line carries
-	 * no purchase id, so nothing can be followed. That is a smaller disclosure
-	 * than the alternative, where the importer reconstructs the same fact by
-	 * noticing a line they cannot account for.
-	 */
-	const sealedRemaining = sealedKeys.map((k) => ({ ...k, used: false }));
-	const privateLines = new Set<number>();
-	for (const p of proposals) {
-		if (p.state === 'matched') continue;
-		const line = lines[p.lineIndex];
-		const abs = (n: bigint) => (n < 0n ? -n : n);
-		const hit = sealedRemaining.find(
-			(k) =>
-				!k.used &&
-				abs(k.amountMinor) === abs(line.amountMinor) &&
-				Math.abs(k.completedAt.getTime() - line.postedAt.getTime()) <= TOLERANCE_DAYS * DAY_MS
-		);
-		if (hit) {
-			hit.used = true;
-			privateLines.add(p.lineIndex);
-		}
-	}
+	const { proposals, privateLines } = await proposeMatches(
+		db,
+		scope,
+		lines,
+		input.accountId ?? null,
+		now
+	);
 
 	const importId = deps.ids.newId();
 	const matchedCount = proposals.filter((p) => p.state === 'matched').length;
@@ -268,7 +307,7 @@ export async function confirmMatch(
 	scope: Scope,
 	lineId: string
 ): Promise<void> {
-	const line = await getLine(db, scope.workspaceId, lineId);
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
 	if (!line) throw new ReconcileError('That statement line no longer exists.');
 	if (!line.matchedPurchaseId) throw new ReconcileError('That line has nothing to confirm.');
 
@@ -318,7 +357,7 @@ async function importAccountId(db: Db, importId: string): Promise<string | null>
  * changes, which is what makes this safe to do freely.
  */
 export async function unlinkMatch(db: Db, deps: Deps, scope: Scope, lineId: string): Promise<void> {
-	const line = await getLine(db, scope.workspaceId, lineId);
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
 	if (!line) throw new ReconcileError('That statement line no longer exists.');
 
 	const now = deps.clock.now();
@@ -354,7 +393,7 @@ export async function linkManually(
 	lineId: string,
 	purchaseId: string
 ): Promise<void> {
-	const line = await getLine(db, scope.workspaceId, lineId);
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
 	if (!line) throw new ReconcileError('That statement line no longer exists.');
 
 	const now = deps.clock.now();
@@ -415,7 +454,7 @@ export async function linkManually(
  * without it a statement can never reach the end of its review.
  */
 export async function ignoreLine(db: Db, deps: Deps, scope: Scope, lineId: string): Promise<void> {
-	const line = await getLine(db, scope.workspaceId, lineId);
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
 	if (!line) throw new ReconcileError('That statement line no longer exists.');
 
 	const now = deps.clock.now();
@@ -437,11 +476,11 @@ export async function ignoreLine(db: Db, deps: Deps, scope: Scope, lineId: strin
 /** Put an ignored line back into review. */
 export async function unignoreLine(
 	db: Db,
-	_deps: Deps,
+	deps: Deps,
 	scope: Scope,
 	lineId: string
 ): Promise<void> {
-	const line = await getLine(db, scope.workspaceId, lineId);
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
 	if (!line) throw new ReconcileError('That statement line no longer exists.');
 	await db
 		.update(statementLine)
@@ -472,10 +511,10 @@ export async function createPurchaseFromLine(
 	lineId: string,
 	input: { itemName?: string | null; categoryId?: string | null } = {}
 ): Promise<{ purchaseId: string; state: 'completed' | 'pending_approval' }> {
-	const line = await getLine(db, scope.workspaceId, lineId);
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
 	if (!line) throw new ReconcileError('That statement line no longer exists.');
 
-	const imp = await getImport(db, scope.workspaceId, line.importId);
+	const imp = await getImport(db, scope.workspaceId, line.importId, scope.memberId);
 	if (!imp) throw new ReconcileError('That import no longer exists.');
 	if (imp.modelRead) {
 		throw new ReconcileError(
@@ -492,7 +531,7 @@ export async function createPurchaseFromLine(
 		throw new ReconcileError('That line is money in, not a purchase.');
 	}
 
-	const name = (input.itemName ?? line.rawDescription).trim();
+	const name = (input.itemName ?? line.suggestedName ?? line.rawDescription).trim();
 	if (!name) throw new ReconcileError('Give the purchase a name first.');
 
 	// submitPurchase owns its transaction; the line update below is a second
@@ -503,7 +542,9 @@ export async function createPurchaseFromLine(
 	const { purchaseId } = await submitPurchase(db, deps, scope, {
 		itemName: name,
 		amount: Money.of(-line.amountMinor, line.currency),
-		categoryId: input.categoryId ?? null,
+		// A bank rule or merchant memory may have proposed one; the person's own
+		// pick, when they made one, wins.
+		categoryId: input.categoryId ?? line.suggestedCategoryId ?? null,
 		note: null,
 		intent: 'log',
 		spentAt: line.postedAt,
@@ -550,6 +591,112 @@ export async function createPurchaseFromLine(
 }
 
 /**
+ * "This charge is that request." The answer to a line whose purchase was asked
+ * for first and never marked bought.
+ *
+ * - **Approved**: the requester is recording that they bought it, at the bank's
+ *   figure and date, through `completePurchase` — so the usual overage rule
+ *   applies. Within the threshold it completes and the line confirms; over it,
+ *   the purchase goes back for re-approval and the line waits, matched.
+ * - **Still waiting on a decision** (or slept on): nothing about the purchase
+ *   changes. The line is matched to it, so it isn't logged twice, and is
+ *   confirmed later like any other match once the purchase is approved and
+ *   marked bought.
+ *
+ * Only the requester may mark their own purchase bought. Anyone else (it was
+ * bought on their card) holds the line against the request instead.
+ */
+export async function settleOpenFromLine(
+	db: Db,
+	deps: Deps & { notifier: Notifier },
+	scope: Scope,
+	lineId: string,
+	purchaseId: string
+): Promise<{ state: 'completed' | 'pending_approval' | 'linked' }> {
+	const line = await getLine(db, scope.workspaceId, lineId, scope.memberId, deps.clock.now());
+	if (!line) throw new ReconcileError('That statement line no longer exists.');
+	if (line.matchState !== 'unmatched') {
+		throw new ReconcileError('Only an unanswered line can be matched to a request.');
+	}
+	if (line.amountMinor >= 0n) throw new ReconcileError('That line is money in, not a purchase.');
+	const imp = await getImport(db, scope.workspaceId, line.importId, scope.memberId);
+	if (!imp) throw new ReconcileError('That import no longer exists.');
+
+	const now = deps.clock.now();
+	const [open] = await openCandidates(
+		db,
+		{ workspaceId: scope.workspaceId, viewerId: scope.memberId },
+		new Date(line.postedAt.getTime() - 366 * DAY_MS),
+		new Date(line.postedAt.getTime() + 366 * DAY_MS),
+		now,
+		0
+	).then((all) => all.filter((c) => c.id === purchaseId));
+	if (!open) throw new ReconcileError('That request is not available to match.');
+
+	const [p] = await db
+		.select({ state: purchase.state, memberId: purchase.memberId })
+		.from(purchase)
+		.where(and(eq(purchase.id, purchaseId), eq(purchase.workspaceId, scope.workspaceId)))
+		.limit(1);
+	if (!p) throw new ReconcileError('That request is not available to match.');
+
+	const link = async (
+		state: 'matched' | 'confirmed',
+		reason: string,
+		clear: boolean
+	): Promise<void> => {
+		await db.transaction(async (tx) => {
+			await tx
+				.update(statementLine)
+				.set({ matchState: state, matchedPurchaseId: purchaseId, matchReason: reason })
+				.where(eq(statementLine.id, lineId));
+			if (clear) {
+				await tx
+					.update(purchase)
+					.set({
+						clearedAt: now,
+						updatedAt: now,
+						...(imp.accountId ? { accountId: imp.accountId } : {})
+					})
+					.where(eq(purchase.id, purchaseId));
+			}
+		});
+		await refreshMatchedCount(db, line.importId);
+	};
+
+	if (p.state !== 'approved') {
+		await link('matched', 'charged before approval; waiting on the decision', false);
+		return { state: 'linked' };
+	}
+	if (p.memberId !== scope.memberId) {
+		// Bought on someone else's card. Marking it bought is still the
+		// requester's call, so the line is held against the request — no
+		// duplicate gets logged — and confirms like any match once they do.
+		await link(
+			'matched',
+			'charged to this card; waiting for the requester to mark it bought',
+			false
+		);
+		return { state: 'linked' };
+	}
+	await completePurchase(db, deps, scope, purchaseId, {
+		amount: Money.of(-line.amountMinor, line.currency),
+		at: line.postedAt
+	});
+	const [after] = await db
+		.select({ state: purchase.state })
+		.from(purchase)
+		.where(eq(purchase.id, purchaseId))
+		.limit(1);
+	if (after?.state === 'completed') {
+		await link('confirmed', 'marked bought from the bank line', true);
+		return { state: 'completed' };
+	}
+	await link('matched', 'bought for more than approved; waiting on re-approval', false);
+	return { state: 'pending_approval' };
+}
+
+/**
  * Close a statement: every line answered (confirmed, private, or ignored).
  * Closing is bookkeeping, not a lock — reopening is one tap, and anything that
  * puts a line back in review reopens the import on its own.
@@ -560,7 +707,7 @@ export async function closeImport(
 	scope: Scope,
 	importId: string
 ): Promise<void> {
-	const imp = await getImport(db, scope.workspaceId, importId);
+	const imp = await getImport(db, scope.workspaceId, importId, scope.memberId);
 	if (!imp) throw new ReconcileError('That import no longer exists.');
 
 	const unsettled = await countUnsettled(db, importId);
@@ -582,7 +729,7 @@ export async function reopenImport(
 	scope: Scope,
 	importId: string
 ): Promise<void> {
-	const imp = await getImport(db, scope.workspaceId, importId);
+	const imp = await getImport(db, scope.workspaceId, importId, scope.memberId);
 	if (!imp) throw new ReconcileError('That import no longer exists.');
 	await db
 		.update(statementImport)
@@ -609,6 +756,9 @@ export async function deleteImport(
 	scope: Scope,
 	importId: string
 ): Promise<void> {
+	// Same door as every other read: a statement you can't open, you can't delete.
+	const imp = await getImport(db, scope.workspaceId, importId, scope.memberId);
+	if (!imp) throw new ReconcileError('That import no longer exists.');
 	const now = deps.clock.now();
 	await db.transaction(async (tx) => {
 		const lines = await tx

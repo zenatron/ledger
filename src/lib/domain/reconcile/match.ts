@@ -37,6 +37,11 @@ export interface MatchCandidate {
 	 * great majority that have never been told. See `eligibleFor`.
 	 */
 	accountId?: string | null;
+	/**
+	 * Asked for but not yet marked bought (approved, pending, held). Never
+	 * auto-matched — only offered — and `completedAt` holds when it was asked.
+	 */
+	open?: boolean;
 }
 
 export type MatchState = 'unmatched' | 'matched';
@@ -80,6 +85,8 @@ export interface MatchOptions {
 	 * days after they're made, and weekends stretch that.
 	 */
 	toleranceDays?: number;
+	/** How long after an ask its charge may still arrive. Default 45 days. */
+	openWindowDays?: number;
 }
 
 const DAY_MS = 86_400_000;
@@ -94,6 +101,21 @@ const DAY_MS = 86_400_000;
 function sameAmount(a: bigint, b: bigint): boolean {
 	const abs = (n: bigint) => (n < 0n ? -n : n);
 	return abs(a) === abs(b);
+}
+
+/**
+ * Close enough to offer, never to claim: tax, tip, shipping and FX move a
+ * charge off the logged figure. 10% (at least one unit) for an open request on
+ * amount alone, 25% when the description also names the merchant.
+ */
+function nearAmount(line: bigint, purchase: bigint, described: boolean): boolean {
+	const abs = (n: bigint) => (n < 0n ? -n : n);
+	const a = abs(line);
+	const b = abs(purchase);
+	const diff = a > b ? a - b : b - a;
+	const pct = described ? 25n : 10n;
+	const allowed = (b * pct) / 100n > 100n ? (b * pct) / 100n : 100n;
+	return diff <= allowed;
 }
 
 function daysApart(a: Date, b: Date): number {
@@ -126,9 +148,21 @@ function describes(line: RawStatementLine, c: MatchCandidate): boolean {
 
 interface Scored {
 	candidate: MatchCandidate;
-	/** Higher is better. 2 = amount, date and description; 1 = amount and date. */
+	/**
+	 * Higher is better. 2 = amount, date and description; 1 = amount and date;
+	 * 0 = only worth offering (a close amount, or a purchase not yet bought).
+	 * Nothing scoring 0 is ever auto-matched.
+	 */
 	score: number;
 	distance: number;
+	reason: string;
+}
+
+function reasonFor(score: number, c: MatchCandidate, exact: boolean): string {
+	if (c.open) return exact ? 'asked for, not yet marked bought' : 'asked for, close amount';
+	if (score === 2) return 'amount, date and description';
+	if (score === 1) return 'amount and date';
+	return 'close amount';
 }
 
 /**
@@ -152,6 +186,7 @@ export function matchLines(
 	options: MatchOptions = {}
 ): MatchProposal[] {
 	const tolerance = options.toleranceDays ?? 3;
+	const openWindow = options.openWindowDays ?? 45;
 	const statementAccount = options.accountId ?? null;
 
 	/**
@@ -166,10 +201,25 @@ export function matchLines(
 		const out: Scored[] = [];
 		for (const c of candidates) {
 			if (!eligibleFor(c)) continue;
-			if (!sameAmount(line.amountMinor, c.amountMinor)) continue;
+			const described = describes(line, c);
+			const exact = sameAmount(line.amountMinor, c.amountMinor);
+			if (!exact) {
+				// A close amount alone is everywhere in a busy month — real data
+				// offered a coin-flip shortlist on nearly every line. Only offer one
+				// when something else vouches for it: the bank names the merchant,
+				// or it's a request still waiting to be marked bought.
+				if (!c.open && !described) continue;
+				if (!nearAmount(line.amountMinor, c.amountMinor, described)) continue;
+			}
 			const distance = daysApart(line.postedAt, c.completedAt);
-			if (distance > tolerance) continue;
-			out.push({ candidate: c, score: describes(line, c) ? 2 : 1, distance });
+			if (c.open) {
+				// The charge comes after the ask: a little before (clock skew, a
+				// card pre-auth), up to the open window after.
+				const after = (line.postedAt.getTime() - c.completedAt.getTime()) / DAY_MS;
+				if (after < -tolerance || after > openWindow) continue;
+			} else if (distance > tolerance) continue;
+			const score = c.open || !exact ? 0 : described ? 2 : 1;
+			out.push({ candidate: c, score, distance, reason: reasonFor(score, c, exact) });
 		}
 		// Best first: strongest evidence, then nearest in time, then name for a
 		// stable order when two candidates are otherwise identical.
@@ -197,7 +247,9 @@ export function matchLines(
 	 */
 	const eligible: { lineIndex: number; best: Scored }[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const s = scored[i];
+		// Only exact, settled candidates can be claimed; a close or open one is
+		// offered alongside but never makes the call — nor blocks it.
+		const s = scored[i].filter((x) => x.score > 0);
 		if (s.length === 0) continue;
 		const best = s[0];
 		const runnerUp = s[1];
@@ -220,7 +272,7 @@ export function matchLines(
 			lineIndex,
 			state: 'matched',
 			purchaseId: best.candidate.id,
-			reason: best.score === 2 ? 'amount, date and description' : 'amount and date',
+			reason: best.reason,
 			suggestions: []
 		};
 	}
@@ -232,10 +284,7 @@ export function matchLines(
 		proposals[i].suggestions = scored[i]
 			.filter((s) => !claimed.has(s.candidate.id))
 			.slice(0, 5)
-			.map((s) => ({
-				purchaseId: s.candidate.id,
-				reason: s.score === 2 ? 'amount, date and description' : 'amount and date'
-			}));
+			.map((s) => ({ purchaseId: s.candidate.id, reason: s.reason }));
 	}
 
 	return proposals;

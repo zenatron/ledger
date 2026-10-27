@@ -262,3 +262,54 @@ describe('matchLines — one statement per card', () => {
 		expect(p[0].suggestions.map((s) => s.purchaseId).sort()).toEqual(['a', 'b']);
 	});
 });
+
+describe('close amounts and open requests', () => {
+	const at = (d: string) => new Date(d);
+	const line = (amt: bigint, desc: string, d = '2026-10-12T10:00:00Z') => ({
+		postedAt: at(d),
+		amountMinor: amt,
+		currency: 'USD',
+		rawDescription: desc,
+		normalizedDescription: desc.toLowerCase()
+	});
+	const cand = (id: string, amt: bigint, extra: Record<string, unknown> = {}) => ({
+		id,
+		amountMinor: amt,
+		completedAt: at('2026-10-12T09:00:00Z'),
+		itemName: 'Thing',
+		merchantName: null,
+		...extra
+	});
+
+	it('a close amount on a settled purchase is offered only when the description names it', () => {
+		const [quiet] = matchLines([line(-5300n, 'POS 1234')], [cand('p', 5000n)]);
+		expect(quiet.suggestions).toEqual([]);
+		const [named] = matchLines(
+			[line(-5300n, 'BLUE BOTTLE 1234')],
+			[cand('p', 5000n, { merchantName: 'Blue Bottle' })]
+		);
+		expect(named.state).toBe('unmatched');
+		expect(named.suggestions.map((s) => s.purchaseId)).toEqual(['p']);
+	});
+
+	it('an open request is offered, never claimed, even on an exact amount', () => {
+		const [p] = matchLines(
+			[line(-5000n, 'BEST BUY', '2026-10-20T10:00:00Z')],
+			[cand('o', 5000n, { open: true, completedAt: at('2026-10-05T10:00:00Z') })]
+		);
+		expect(p.state).toBe('unmatched');
+		expect(p.suggestions[0]).toMatchObject({
+			purchaseId: 'o',
+			reason: 'asked for, not yet marked bought'
+		});
+	});
+
+	it('an open request does not block an exact settled match', () => {
+		const [p] = matchLines(
+			[line(-5000n, 'BEST BUY')],
+			[cand('o', 5000n, { open: true }), cand('s', 5000n)]
+		);
+		expect(p.state).toBe('matched');
+		expect(p.purchaseId).toBe('s');
+	});
+});

@@ -25,7 +25,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const db = getDb();
 	const ws = locals.workspace!;
 	const [imports, accounts, vision] = await Promise.all([
-		listImports(db, ws.id),
+		listImports(db, ws.id, locals.member!.id),
 		listAccounts(db, ws.id),
 		// Only consulted for a PDF with no text layer. Carries its own refusal
 		// wording, so the UI never invents one — see domain/intelligence/capability-gate
